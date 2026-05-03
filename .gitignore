@@ -1,0 +1,44 @@
+# Python bytecode/cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.py,cover
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Coverage/build artifacts
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# DSN pipeline generated outputs
+derived/
+derived_onecmd/
+llm/
+*.normalized.json
+*.normalized.generated.json
+
+# Review artifact pack files (generated)
+01_connectivity.core.json
+02_components.catalog.json
+03_routing.topology.json
+04_signal_views.json
+05_integrity_checks.json
+06_review_report.md
+07_bom_crosswalk.json
