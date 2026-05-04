@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Tuple
@@ -304,22 +303,3 @@ def normalize_dsn(path: Path) -> Dict[str, Any]:
     raise ValueError(f"{path}: unsupported input extension, expected .dsn or .json")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Parse DSN and write normalized JSON.")
-    parser.add_argument("input_path", help="Path to .dsn or normalized .json")
-    parser.add_argument("--out", help="Output normalized JSON path")
-    parser.add_argument("--compact", action="store_true", help="Emit compact JSON")
-    return parser.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-    in_path = Path(args.input_path)
-    payload = normalize_dsn(in_path)
-    out = Path(args.out) if args.out else in_path.with_suffix(".normalized.json")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(dump_json(payload, compact=args.compact) + "\n", encoding="utf-8")
-
-
-if __name__ == "__main__":
-    main()

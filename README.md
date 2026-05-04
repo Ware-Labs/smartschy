@@ -7,13 +7,25 @@ connectivity/debug review workflows.
 ## Scripts
 
 - `parse_dsn.py`
-  - Parses DSN into one normalized internal schema JSON.
-- `build_review_artifacts.py`
-  - Builds a seven-file per-board artifact pack from a DSN file (BOM required).
+  - DSN parser internals used by the unified pipeline.
+- `build_project_artifacts.py`
+  - Unified project-centric pipeline: DSN + BOM + datasheets -> board artifacts + per-datasheet markdown + link manifests.
 - `review_artifacts.py`
-  - Artifact-generation library used by the CLI.
+  - Artifact-generation internals used by the unified pipeline.
 - `bom_ingest.py`
-  - BOM CSV ingestion and DSN/BOM join helpers.
+  - BOM CSV ingestion internals used by the unified pipeline.
+- `datasheet_to_markdown.py`
+  - Deterministic-first datasheet extraction internals used by the unified pipeline.
+- `pdf_extract.py`
+  - PyMuPDF extraction of text blocks, links, metadata, and figures.
+- `table_extract.py`
+  - Deterministic table extraction (pdfplumber).
+- `normalize.py`
+  - Canonical normalized document schema + section heuristics.
+- `markdown_render.py`
+  - Markdown renderer with page anchors, figures, and table handling.
+- `llm_cleanup.py`
+  - Optional constrained LLM cleanup pass (`--use-llm`).
 
 ## Build Artifacts
 
@@ -36,28 +48,32 @@ For each board, the pipeline emits:
 
 ## Usage
 
-### 1) Normalize DSN
+### Unified Project-Centric Pipeline (Recommended)
+
+Given a project folder like:
+
+- `keen3_filet/keen3_filet.dsn`
+- `keen3_filet/Bill of Materials-keen3_filet.csv`
+- `keen3_filet/resources/*.pdf` (optional datasheets)
+
+Run:
 
 ```bash
-python parse_dsn.py keen3_filet/keen3_filet.dsn -o keen3_filet/keen3_filet.normalized.json
+python build_project_artifacts.py --project-dir keen3_filet --out-root derived --verbose
 ```
 
-### 2) Build review artifacts (one command)
+This writes:
 
-```bash
-python build_review_artifacts.py --out-root derived --summary
-```
+- `derived/keen3_filet/01_connectivity.core.json` ... `07_bom_crosswalk.json`
+- `derived/keen3_filet/datasheets/<datasheet-id>/datasheet.md` (+ raw/normalized/report/images)
+- `derived/keen3_filet/project_manifest.json`
+- `derived/keen3_filet/datasheet_manifest.json`
+- `derived/keen3_filet/component_datasheet_links.json`
+- `derived/keen3_filet/linking_report.md`
+- `derived/keen3_filet/qa_context.json`
 
-This auto-discovers `.dsn` files and picks a BOM CSV in each DSN folder.
-Preferred BOM filename pattern is:
-
-- `Bill of Materials-<dsn-stem>.csv`
-
-By default, each board goes to:
-
-- `derived/<board-name>/01_connectivity.core.json`
-- ...
-- `derived/<board-name>/07_bom_crosswalk.json`
+`component_datasheet_links.json` classifies each component as linked (exact/heuristic), ambiguous, or unmatched.
+`datasheet_manifest.json` classifies each datasheet as linked, unlinked, or failed.
 
 ## Parser Order
 
@@ -135,7 +151,7 @@ This repository includes a first-pass question-enrichment workflow that:
 ### Build summary
 
 ```bash
-python build_llm_summary.py --board derived_onecmd/keen3_filet --question "are the swdio and swdclk lines connected properly?" --out llm/keen3_filet/llm_summary.json
+python build_llm_summary.py --board derived/keen3_filet --question "are the swdio and swdclk lines connected properly?" --out llm/keen3_filet/llm_summary.json
 ```
 
 ### Enrich question (OpenAI)
@@ -192,4 +208,18 @@ python validate_enriched_question.py --summary llm/keen3_filet/llm_summary.json 
 
 ```bash
 python tests/run_enriched_validation_tests.py
+```
+
+## Dependencies
+
+Install extraction dependencies used by the unified pipeline:
+
+```bash
+python -m pip install pymupdf pdfplumber
+```
+
+Optional OCR fallback dependencies:
+
+```bash
+python -m pip install pillow pytesseract
 ```

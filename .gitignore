@@ -29,7 +29,6 @@ dist/
 
 # DSN pipeline generated outputs
 derived/
-derived_onecmd/
 llm/
 *.normalized.json
 *.normalized.generated.json
