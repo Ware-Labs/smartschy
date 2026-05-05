@@ -41,3 +41,5 @@ llm/
 05_integrity_checks.json
 06_review_report.md
 07_bom_crosswalk.json
+
+.env
