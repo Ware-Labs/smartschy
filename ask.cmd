@@ -1,0 +1,1 @@
+python ask_and_answer.py --project-root . --question "did I connect the crystal correctly to the microcontroller?" --model "gpt-5.4"
