@@ -77,6 +77,24 @@ class AgentAskIntegrationTests(unittest.TestCase):
         self.assertTrue(any(ref.startswith("U") or ref.startswith("MOD") for ref in resolved.get("components", [])))
         self.assertTrue(any(item.get("type") == "trace_net_neighborhood" for item in packet.get("evidence", [])))
 
+    def test_agent_ask_emits_progress_messages_via_callback(self) -> None:
+        progress_events: list[str] = []
+        run_evidence_agent(
+            project_root=REPO_ROOT,
+            question="is VDDIO connected correctly to the ICM-42605?",
+            limits=AgentLimits(
+                max_iterations=2,
+                max_tool_calls=24,
+                max_chunks=8,
+                max_schematic_images=2,
+                max_total_evidence_items=24,
+            ),
+            progress_callback=progress_events.append,
+        )
+        self.assertGreater(len(progress_events), 0)
+        self.assertTrue(any("Iteration" in msg for msg in progress_events))
+        self.assertTrue(any("Calling tool" in msg for msg in progress_events))
+
 
 if __name__ == "__main__":
     unittest.main()

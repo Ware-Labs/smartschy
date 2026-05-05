@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import time
 from typing import Any, Callable
 
 from dotenv import load_dotenv
@@ -70,6 +71,15 @@ class LocalEvidenceToolRuntime:
         if fn is None:
             raise KeyError(f"Unknown tool: {tool_name}")
         return fn(**args)
+
+
+ProgressCallback = Callable[[str], None]
+
+
+def _emit_progress(progress_callback: ProgressCallback | None, message: str) -> None:
+    if progress_callback is None:
+        return
+    progress_callback(message)
 
 
 def _question_is_connectivity(question: str) -> bool:
@@ -364,15 +374,27 @@ def run_evidence_agent(
     question: str,
     limits: AgentLimits | None = None,
     answer_options: AnswerOptions | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict[str, Any]:
+    run_started_at = time.perf_counter()
     project_root = Path(project_root).resolve()
     limits = limits or AgentLimits()
     answer_options = answer_options or AnswerOptions()
+    _emit_progress(progress_callback, f"Starting agent-ask for question: {question}")
     out_dir = project_root / "derived" / "qa"
     out_dir.mkdir(parents=True, exist_ok=True)
     recorder = ToolTraceRecorder(out_dir)
     runtime = LocalEvidenceToolRuntime(project_root)
     entities = _parse_entities(project_root, question)
+    _emit_progress(
+        progress_callback,
+        (
+            "Parsed entities: "
+            f"{len(entities.get('refdes', []))} components, "
+            f"{len(entities.get('nets', []))} nets, "
+            f"{len(entities.get('roles', []))} roles"
+        ),
+    )
     state: dict[str, Any] = {
         "entities": entities,
         "evidence": [],
@@ -387,14 +409,22 @@ def run_evidence_agent(
     stop_reason = "limits_exhausted"
     sufficiency = {"sufficient": False, "missing": ["not_evaluated"]}
     for iteration in range(1, limits.max_iterations + 1):
+        _emit_progress(progress_callback, f"Iteration {iteration}/{limits.max_iterations}: planning tool calls")
         plan = _plan_iteration(question, state, iteration=iteration)
+        _emit_progress(progress_callback, f"Iteration {iteration}: executing {len(plan)} planned calls")
         iteration_call_ids: list[str] = []
         for action in plan:
             if state["tool_call_count"] >= limits.max_tool_calls:
                 stop_reason = "max_tool_calls_reached"
+                _emit_progress(progress_callback, "Reached max tool calls limit; stopping execution")
                 break
             tool_name = action["tool"]
             args = action["args"]
+            _emit_progress(
+                progress_callback,
+                f"Calling tool {tool_name} ({state['tool_call_count'] + 1}/{limits.max_tool_calls})",
+            )
+            call_started_at = time.perf_counter()
             result = runtime.call_tool(tool_name, args)
             if tool_name in {"search_pdf_chunks", "search_datasheet_chunks"}:
                 rows = list(result.get("results", []))
@@ -417,6 +447,8 @@ def run_evidence_agent(
             call_id = recorder.record_tool_call(name=tool_name, args=args, result=result)
             iteration_call_ids.append(call_id)
             state["tool_call_count"] += 1
+            call_elapsed_ms = int((time.perf_counter() - call_started_at) * 1000)
+            _emit_progress(progress_callback, f"Completed {tool_name} in {call_elapsed_ms} ms")
             evidence_item = {
                 "type": tool_name,
                 "source_priority": _priority_for_tool(tool_name),
@@ -447,10 +479,19 @@ def run_evidence_agent(
                     state["resolved_pages"].add(page)
             if len(state["evidence"]) >= limits.max_total_evidence_items:
                 stop_reason = "max_total_evidence_items_reached"
+                _emit_progress(progress_callback, "Reached max total evidence items limit; stopping execution")
                 break
         state["entities"]["nets"] = sorted(set(state["entities"].get("nets", [])))
         state["entities"]["refdes"] = sorted(set(state["entities"].get("refdes", [])))
         sufficiency = _sufficiency_check(question, state)
+        _emit_progress(
+            progress_callback,
+            (
+                f"Iteration {iteration} sufficiency: "
+                f"{'sufficient' if sufficiency.get('sufficient') else 'insufficient'} "
+                f"(dsn_hits={sufficiency.get('dsn_connectivity_hits', 0)})"
+            ),
+        )
         recorder.record_iteration(
             iteration=iteration,
             plan=plan,
@@ -492,11 +533,14 @@ def run_evidence_agent(
     )
     packet_path = out_dir / "agent_evidence_packet.json"
     write_evidence_packet(packet_path, packet)
+    _emit_progress(progress_callback, f"Wrote evidence packet: {packet_path}")
     prompt_path = out_dir / "agent_prompt.txt"
     prompt_text = render_and_write_prompt(packet, prompt_path)
+    _emit_progress(progress_callback, f"Wrote strict prompt: {prompt_path}")
     answer_path = out_dir / "agent_answer.txt"
     llm_answer_summary: dict[str, Any] | None = None
     if answer_options.answer_with_llm:
+        _emit_progress(progress_callback, f"Preparing LLM answer with model {answer_options.model}")
         load_dotenv(project_root / ".env")
         import os
 
@@ -535,6 +579,7 @@ def run_evidence_agent(
                 }
             )
             image_count += 1
+        _emit_progress(progress_callback, f"Submitting LLM request (attached images: {image_count})")
         try:
             if image_count > 0:
                 response = client.responses.create(
@@ -552,6 +597,7 @@ def run_evidence_agent(
             ) from exc
         answer_text = response.output_text.strip()
         answer_path.write_text(answer_text, encoding="utf-8")
+        _emit_progress(progress_callback, f"Wrote final answer: {answer_path}")
         llm_answer_summary = {
             "answer_generated": True,
             "model": answer_options.model,
@@ -570,6 +616,14 @@ def run_evidence_agent(
         },
     )
     write_json(out_dir / "agent_trace_summary.json", {"trace": trace_payload, "sufficiency": sufficiency})
+    elapsed_ms = int((time.perf_counter() - run_started_at) * 1000)
+    _emit_progress(
+        progress_callback,
+        (
+            f"Finished agent-ask in {elapsed_ms} ms "
+            f"(stop_reason={stop_reason}, tool_calls={state['tool_call_count']})"
+        ),
+    )
 
     return {
         "question": question,

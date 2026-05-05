@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from .qa import answer_question
+from .evidence_agent import AgentLimits, run_evidence_agent
 from .utils import write_json
 
 
@@ -93,37 +94,43 @@ SYNTHETIC_GENERALIZATION_QUESTIONS = [
 ]
 
 
-def _contains_focus(summary: dict, expected_tokens: list[str]) -> bool:
+def _contains_focus(summary: dict, packet: dict, expected_tokens: list[str]) -> bool:
+    resolved_entities = summary.get("resolved_entities", {})
     blob = " ".join(
         [
-            " ".join(summary.get("entities", {}).get("refdes", [])),
-            " ".join(summary.get("entities", {}).get("nets", [])),
-            " ".join(summary.get("entities", {}).get("symbols", [])),
-            " ".join(summary.get("entities", {}).get("roles", [])),
-            " ".join(summary.get("entities", {}).get("unresolved_roles", [])),
-            " ".join(summary.get("pin_evidence_statuses", [])),
-            " ".join(summary.get("pin_evidence_ids", [])),
+            " ".join(resolved_entities.get("components", [])),
+            " ".join(resolved_entities.get("nets", [])),
+            " ".join(resolved_entities.get("pins", [])),
+            " ".join(summary.get("open_uncertainties", [])),
+            " ".join(packet.get("critical_findings", [])),
         ]
     ).upper()
     return any(token.upper().replace("\\", "") in blob.replace("\\", "") for token in expected_tokens)
 
 
 def _run_suite(project_root: Path, questions: list[dict], resolver_mode: str) -> dict:
+    _ = resolver_mode
     runs = []
     for row in questions:
-        summary = answer_question(
+        summary = run_evidence_agent(
             project_root,
             row["question"],
-            net_walk_depth=1,
-            top_k=6,
-            resolver_mode=resolver_mode,
+            limits=AgentLimits(
+                max_iterations=4,
+                max_tool_calls=32,
+                max_chunks=12,
+                max_schematic_images=4,
+                max_total_evidence_items=48,
+            ),
         )
+        packet_path = Path(summary["evidence_packet_path"])
+        packet = json.loads(packet_path.read_text(encoding="utf-8")) if packet_path.exists() else {}
         runs.append(
             {
                 "id": row["id"],
                 "question": row["question"],
                 "expected_focus": row["expected_focus"],
-                "heuristic_pass": _contains_focus(summary, row["expected_focus"]),
+                "heuristic_pass": _contains_focus(summary, packet, row["expected_focus"]),
                 "summary": summary,
             }
         )
