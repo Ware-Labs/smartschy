@@ -47,6 +47,16 @@ BOARD_SPECIFIC_QUESTIONS = [
         "question": "what evidence exists for i2c connections in this board?",
         "expected_focus": ["I2C", "SCL", "SDA"],
     },
+    {
+        "id": "q9",
+        "question": "is VDDIO connected correctly to the ICM-42605?",
+        "expected_focus": ["U3-5", "FLOATING", "ICM-42605", "VDDIO"],
+    },
+    {
+        "id": "q10",
+        "question": "is U3 VDD connected correctly?",
+        "expected_focus": ["U3-8", "CONNECTED", "VDD", "P6-1"],
+    },
 ]
 
 SYNTHETIC_GENERALIZATION_QUESTIONS = [
@@ -70,6 +80,16 @@ SYNTHETIC_GENERALIZATION_QUESTIONS = [
         "question": "what i2c lines exist and where do they connect?",
         "expected_focus": ["I2C", "SCL", "SDA"],
     },
+    {
+        "id": "g5",
+        "question": "is the IO supply pin connected or floating on the IMU?",
+        "expected_focus": ["PIN", "FLOATING", "IO", "IMU"],
+    },
+    {
+        "id": "g6",
+        "question": "does a power pin on the sensor appear connected to a named net?",
+        "expected_focus": ["CONNECTED", "NET", "U3", "VDD"],
+    },
 ]
 
 
@@ -81,6 +101,8 @@ def _contains_focus(summary: dict, expected_tokens: list[str]) -> bool:
             " ".join(summary.get("entities", {}).get("symbols", [])),
             " ".join(summary.get("entities", {}).get("roles", [])),
             " ".join(summary.get("entities", {}).get("unresolved_roles", [])),
+            " ".join(summary.get("pin_evidence_statuses", [])),
+            " ".join(summary.get("pin_evidence_ids", [])),
         ]
     ).upper()
     return any(token.upper().replace("\\", "") in blob.replace("\\", "") for token in expected_tokens)

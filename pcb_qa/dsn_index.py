@@ -59,6 +59,88 @@ def parse_network_from_dsn(dsn_text: str) -> list[NetRecord]:
     return net_records
 
 
+def build_component_pin_index(dsn_text: str, records: list[NetRecord]) -> dict:
+    component_tokens = re.findall(r"\(component\s+([^\s\)]+)", dsn_text)
+    image_to_refdes: dict[str, set[str]] = defaultdict(set)
+    for token in component_tokens:
+        if "_" not in token:
+            continue
+        image_name, refdes = token.rsplit("_", 1)
+        if refdes:
+            image_to_refdes[token].add(refdes.upper())
+            image_to_refdes[image_name].add(refdes.upper())
+
+    image_pins: dict[str, set[str]] = defaultdict(set)
+    cursor = 0
+    marker = "(image "
+    while True:
+        start = dsn_text.find(marker, cursor)
+        if start < 0:
+            break
+        name_start = start + len(marker)
+        name_end = name_start
+        while name_end < len(dsn_text) and dsn_text[name_end] not in {" ", "\n", "\r", "\t", ")"}:
+            name_end += 1
+        image_name = dsn_text[name_start:name_end].strip()
+        depth = 0
+        end = start
+        while end < len(dsn_text):
+            ch = dsn_text[end]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    end += 1
+                    break
+            end += 1
+        block = dsn_text[start:end]
+        for pin_match in re.finditer(r"\(pin\s+[^\s\)]+\s+([^\s\)]+)", block):
+            logical_pin = pin_match.group(1).strip()
+            if logical_pin:
+                image_pins[image_name].add(logical_pin)
+        cursor = max(end, start + 1)
+
+    connected_by_refdes: dict[str, set[str]] = defaultdict(set)
+    for record in records:
+        for pin in record.pins:
+            connected_by_refdes[pin["refdes"].upper()].add(pin["pin"])
+
+    components: dict[str, dict] = {}
+    for image_name, refdes_set in image_to_refdes.items():
+        all_pins_for_image = image_pins.get(image_name, set())
+        for refdes in sorted(refdes_set):
+            connected = connected_by_refdes.get(refdes, set())
+            floating = sorted(pin for pin in all_pins_for_image if pin and pin not in connected)
+            candidate = {
+                "refdes": refdes,
+                "image_name": image_name,
+                "all_pins": sorted(all_pins_for_image),
+                "connected_pins": sorted(connected),
+                "floating_pins": floating,
+            }
+            existing = components.get(refdes)
+            if existing is None:
+                components[refdes] = candidate
+            else:
+                existing_all = existing.get("all_pins", [])
+                if len(candidate["all_pins"]) > len(existing_all):
+                    components[refdes] = candidate
+
+    # Keep entries for refdes observed in nets but not present in images/components.
+    for refdes, connected in connected_by_refdes.items():
+        if refdes not in components:
+            components[refdes] = {
+                "refdes": refdes,
+                "image_name": "",
+                "all_pins": sorted(connected),
+                "connected_pins": sorted(connected),
+                "floating_pins": [],
+            }
+
+    return {"components": components}
+
+
 def build_net_graph(records: list[NetRecord]) -> dict:
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
@@ -119,11 +201,14 @@ def build_dsn_indices(dsn_path: Path, output_dir: Path) -> dict[str, int]:
                 "net_name_canonical": record.net_name_canonical,
             }
     write_json(output_dir / "pin_to_net.json", pin_to_net)
+    component_pin_index = build_component_pin_index(dsn_text, records)
+    write_json(output_dir / "component_pin_index.json", component_pin_index)
     graph = build_net_graph(records)
     write_json(output_dir / "net_graph.json", graph)
     return {
         "net_count": len(records),
         "pin_count": len(pin_to_net),
+        "component_count": len(component_pin_index.get("components", {})),
         "graph_node_count": len(graph["nodes"]),
         "graph_edge_count": len(graph["edges"]),
     }

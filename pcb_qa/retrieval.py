@@ -54,6 +54,7 @@ class RetrievedEvidence:
 @dataclass
 class RetrievalResult:
     entities: dict[str, list[str]]
+    pin_evidence: list[RetrievedEvidence]
     net_evidence: list[RetrievedEvidence]
     datasheet_evidence: list[RetrievedEvidence]
     schematic_evidence: list[RetrievedEvidence]
@@ -348,6 +349,7 @@ class HybridRetriever:
         derived = project_root / "derived"
         self.nets = read_jsonl(derived / "dsn" / "nets.jsonl")
         self.pin_to_net = read_json(derived / "dsn" / "pin_to_net.json")
+        self.component_pin_index = read_json(derived / "dsn" / "component_pin_index.json")
         self.net_graph = read_json(derived / "dsn" / "net_graph.json")
         self.refdes_to_part = read_json(derived / "bom" / "refdes_to_part.json")
         self.pdf_chunks = read_jsonl(derived / "pdf" / "pdf_chunks.jsonl")
@@ -369,6 +371,7 @@ class HybridRetriever:
         self.chunk_vecs = [
             hash_embedding(chunk.get("tokens", []), dims=512) for chunk in self.pdf_chunks
         ]
+        self.component_pins = self.component_pin_index.get("components", {})
 
     def _nets_for_refdes(self, refdes: str) -> set[str]:
         needle = f"{refdes.upper()}-"
@@ -429,6 +432,149 @@ class HybridRetriever:
                 )
             )
         ranked.sort(key=lambda row: row.score, reverse=True)
+        return ranked
+
+    def _resolve_refdes_from_symbols(self, symbols: list[str]) -> set[str]:
+        resolved: set[str] = set()
+        symbol_blob = " ".join(symbols).lower()
+        for refdes, meta in self.refdes_to_part.items():
+            fields = " ".join(
+                [
+                    refdes,
+                    meta.get("part_number", ""),
+                    meta.get("manufacturer", ""),
+                    meta.get("specification", ""),
+                    meta.get("value", ""),
+                ]
+            ).lower()
+            if not fields:
+                continue
+            if any(sym.lower() in fields for sym in symbols if len(sym) >= 3):
+                resolved.add(refdes.upper())
+        # Explicit model part references (e.g., ICM-42605) should strongly map.
+        if "icm-42605" in symbol_blob:
+            for refdes, meta in self.refdes_to_part.items():
+                if "icm-42605" in meta.get("part_number", "").lower():
+                    resolved.add(refdes.upper())
+        return resolved
+
+    def _extract_function_tokens(self, question: str) -> set[str]:
+        tokens = set()
+        for token in re.findall(r"\b[A-Za-z_][A-Za-z0-9_/-]{2,}\b", question):
+            upper = token.upper()
+            if upper in {"CONNECTED", "CORRECTLY", "QUESTION", "THE", "AND"}:
+                continue
+            if any(ch.isdigit() for ch in upper) or upper.isalpha():
+                tokens.add(upper)
+        pin_keywords = {"VDD", "VDDIO", "VCC", "GND", "SCL", "SDA", "CS", "SCLK", "SDI", "SDO", "INT", "RESET"}
+        return {tok for tok in tokens if any(k in tok for k in pin_keywords)}
+
+    def _infer_pin_numbers_from_chunks(self, refdes: str, function_token: str) -> set[str]:
+        out: set[str] = set()
+        pattern_inline = re.compile(rf"{re.escape(function_token)}\s*([A-Za-z0-9]+)", re.IGNORECASE)
+        pattern_reverse = re.compile(rf"([A-Za-z0-9]+)\s*{re.escape(function_token)}", re.IGNORECASE)
+        for chunk in self.pdf_chunks:
+            if chunk.get("source_type") not in {"schematic", "datasheet"}:
+                continue
+            text = str(chunk.get("text", ""))
+            if refdes.upper() not in text.upper() and chunk.get("source_type") == "schematic":
+                continue
+            for pat in (pattern_inline, pattern_reverse):
+                for match in pat.finditer(text):
+                    candidate = match.group(1).strip().upper()
+                    if (
+                        candidate
+                        and len(candidate) <= 4
+                        and candidate not in {"VDD", "VDDIO"}
+                        and re.fullmatch(r"[A-Z]?\d{1,3}", candidate)
+                    ):
+                        out.add(candidate)
+        return out
+
+    def _pin_evidence(self, question: str, entities: dict) -> list[RetrievedEvidence]:
+        symbols = entities.get("symbols", [])
+        matched_refdes = set(entities.get("refdes", []))
+        matched_refdes.update(self._resolve_refdes_from_symbols(symbols))
+        function_tokens = self._extract_function_tokens(question)
+
+        evidence: list[RetrievedEvidence] = []
+        for refdes in sorted(matched_refdes):
+            component_meta = self.component_pins.get(refdes, {})
+            all_pins = set(component_meta.get("all_pins", []))
+            floating = set(component_meta.get("floating_pins", []))
+            for func in sorted(function_tokens):
+                pin_candidates = self._infer_pin_numbers_from_chunks(refdes, func)
+                if all_pins:
+                    pin_candidates = {pin for pin in pin_candidates if pin in all_pins}
+                if not pin_candidates:
+                    evidence.append(
+                        RetrievedEvidence(
+                            source_type="pin",
+                            source_id=f"{refdes}:{func}",
+                            score=0.3,
+                            payload={
+                                "refdes": refdes,
+                                "function_token": func,
+                                "status": "unknown",
+                                "reason": "function_to_pin_unresolved",
+                            },
+                        )
+                    )
+                    continue
+                for pin in sorted(pin_candidates):
+                    token = f"{refdes}-{pin}"
+                    if token in self.pin_to_net:
+                        net_payload = self.pin_to_net[token]
+                        evidence.append(
+                            RetrievedEvidence(
+                                source_type="pin",
+                                source_id=token,
+                                score=2.5,
+                                payload={
+                                    "refdes": refdes,
+                                    "pin": pin,
+                                    "function_token": func,
+                                    "status": "connected",
+                                    "net_name_raw": net_payload.get("net_name_raw", ""),
+                                    "net_name_canonical": net_payload.get("net_name_canonical", ""),
+                                },
+                            )
+                        )
+                    elif pin in all_pins or pin in floating:
+                        evidence.append(
+                            RetrievedEvidence(
+                                source_type="pin",
+                                source_id=token,
+                                score=2.0,
+                                payload={
+                                    "refdes": refdes,
+                                    "pin": pin,
+                                    "function_token": func,
+                                    "status": "floating",
+                                },
+                            )
+                        )
+                    else:
+                        evidence.append(
+                            RetrievedEvidence(
+                                source_type="pin",
+                                source_id=token,
+                                score=0.8,
+                                payload={
+                                    "refdes": refdes,
+                                    "pin": pin,
+                                    "function_token": func,
+                                    "status": "unknown",
+                                },
+                            )
+                        )
+        # Prefer deterministic statuses over unknown duplicates.
+        dedup: dict[str, RetrievedEvidence] = {}
+        for item in evidence:
+            prior = dedup.get(item.source_id)
+            if prior is None or item.score > prior.score:
+                dedup[item.source_id] = item
+        ranked = sorted(dedup.values(), key=lambda row: row.score, reverse=True)
         return ranked
 
     def _candidate_datasheets(self, entities: dict[str, list[str]]) -> set[str]:
@@ -501,10 +647,25 @@ class HybridRetriever:
 
     def retrieve(self, question: str, net_walk_depth: int = 1, top_k: int = 6) -> RetrievalResult:
         entities = self.parser.parse(question)
+        pin_evidence = self._pin_evidence(question, entities)
+        for pin in pin_evidence:
+            payload = pin.payload or {}
+            refdes = payload.get("refdes")
+            if isinstance(refdes, str) and refdes:
+                entities.setdefault("refdes", [])
+                entities["refdes"].append(refdes)
+            if payload.get("status") == "connected":
+                net_name = payload.get("net_name_canonical")
+                if isinstance(net_name, str) and net_name:
+                    entities.setdefault("nets", [])
+                    entities["nets"].append(net_name)
+        entities["refdes"] = sorted(set(entities.get("refdes", [])))
+        entities["nets"] = sorted(set(entities.get("nets", [])))
         net_evidence = self._net_evidence(entities, depth=net_walk_depth)
         datasheet_evidence, schematic_evidence = self._pdf_evidence(question, entities, top_k=top_k)
         return RetrievalResult(
             entities=entities,
+            pin_evidence=pin_evidence,
             net_evidence=net_evidence,
             datasheet_evidence=datasheet_evidence,
             schematic_evidence=schematic_evidence,

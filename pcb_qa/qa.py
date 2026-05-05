@@ -25,6 +25,7 @@ def build_evidence_packet(question: str, retrieval: RetrievalResult) -> dict:
     return {
         "question": question,
         "entities": retrieval.entities,
+        "pin_evidence": [asdict(item) for item in retrieval.pin_evidence],
         "net_evidence": [asdict(item) for item in retrieval.net_evidence],
         "datasheet_evidence": [asdict(item) for item in retrieval.datasheet_evidence],
         "schematic_evidence": [asdict(item) for item in retrieval.schematic_evidence],
@@ -36,6 +37,8 @@ def build_inference_prompt(packet: dict) -> str:
     return (
         "You are a senior hardware design review assistant.\n"
         "Use only the supplied evidence. If evidence is incomplete, say so.\n\n"
+        "Evidence priority order: DSN pin/net evidence > schematic image/text > datasheet guidance.\n"
+        "If a target pin is floating or missing from DSN connectivity, state that explicitly.\n\n"
         "Treat entity confidence and unresolved roles as first-class signals.\n"
         "If confidence is low, avoid definitive claims.\n\n"
         "Return output with these sections:\n"
@@ -70,6 +73,11 @@ def answer_question(
         "question": question,
         "resolver_mode": resolver_mode,
         "entities": retrieval.entities,
+        "pin_evidence_statuses": sorted(
+            {str(item.payload.get("status", "")) for item in retrieval.pin_evidence if item.payload}
+        ),
+        "pin_evidence_ids": [item.source_id for item in retrieval.pin_evidence[:12]],
+        "pin_evidence_count": len(retrieval.pin_evidence),
         "net_evidence_count": len(retrieval.net_evidence),
         "datasheet_evidence_count": len(retrieval.datasheet_evidence),
         "schematic_evidence_count": len(retrieval.schematic_evidence),
