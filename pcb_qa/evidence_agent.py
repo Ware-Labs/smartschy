@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import os
 from pathlib import Path
 import re
 import time
@@ -82,10 +84,336 @@ def _emit_progress(progress_callback: ProgressCallback | None, message: str) -> 
     progress_callback(message)
 
 
-def _question_is_connectivity(question: str) -> bool:
-    q = question.lower()
-    markers = ["connect", "wired", "tie", "net", "floating", "correctly", "connection"]
-    return any(marker in q for marker in markers)
+def _tool_definitions() -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "name": "list_project_summary",
+            "description": "Read ingest and artifact coverage summary.",
+            "parameters": {"type": "object", "properties": {}, "additionalProperties": False},
+        },
+        {
+            "type": "function",
+            "name": "search_components",
+            "description": "Search components by refdes, part number, value, or text query.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "component_type": {"type": "string"},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_component",
+            "description": "Get BOM and DSN pin summary for a component.",
+            "parameters": {
+                "type": "object",
+                "properties": {"refdes": {"type": "string"}},
+                "required": ["refdes"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_component_pins",
+            "description": "Get pin connectivity and floating pins for a component.",
+            "parameters": {
+                "type": "object",
+                "properties": {"refdes": {"type": "string"}},
+                "required": ["refdes"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_pin_net",
+            "description": "Get DSN net for a specific component pin.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refdes": {"type": "string"},
+                    "pin": {"type": "string"},
+                },
+                "required": ["refdes", "pin"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "search_nets",
+            "description": "Search DSN nets by canonical name or alias.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_net",
+            "description": "Get canonical DSN net details and members.",
+            "parameters": {
+                "type": "object",
+                "properties": {"net_name_or_alias": {"type": "string"}},
+                "required": ["net_name_or_alias"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_net_members",
+            "description": "Get components and pins connected to a DSN net.",
+            "parameters": {
+                "type": "object",
+                "properties": {"net_name": {"type": "string"}},
+                "required": ["net_name"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "trace_net_neighborhood",
+            "description": "Trace local DSN graph around seed nets/components/pins.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "seed_nets": {"type": "array", "items": {"type": "string"}},
+                    "seed_pins": {"type": "array", "items": {"type": "string"}},
+                    "seed_components": {"type": "array", "items": {"type": "string"}},
+                    "depth": {"type": "integer"},
+                    "max_nodes": {"type": "integer"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "search_pdf_chunks",
+            "description": "Search schematic and datasheet chunks for relevant snippets.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "source_type": {"type": "string"},
+                    "refdes": {"type": "string"},
+                    "mpn": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_pdf_chunk",
+            "description": "Get full text and metadata for a specific chunk ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"chunk_id": {"type": "string"}},
+                "required": ["chunk_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "find_datasheets_for_component",
+            "description": "Get likely datasheet file candidates for a component.",
+            "parameters": {
+                "type": "object",
+                "properties": {"refdes": {"type": "string"}},
+                "required": ["refdes"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "search_datasheet_chunks",
+            "description": "Search datasheet chunks for one component.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refdes": {"type": "string"},
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                "required": ["refdes", "query"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_schematic_pages",
+            "description": "Get relevant schematic pages for query/refdes/net.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "refdes": {"type": "string"},
+                    "net": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_schematic_page_image",
+            "description": "Resolve schematic page image metadata.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "page_number": {"type": "integer"},
+                    "include_bytes": {"type": "boolean"},
+                },
+                "required": ["page_number"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_component_context_bundle",
+            "description": "Fetch compact context bundle for one component.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "refdes": {"type": "string"},
+                    "query": {"type": "string"},
+                    "max_results": {"type": "integer"},
+                },
+                "required": ["refdes"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "finalize_evidence",
+            "description": (
+                "Call when enough evidence is collected. Provide selected tool_call IDs, "
+                "resolved entities, uncertainties, and a stop reason."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "selected_tool_call_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "resolved_entities": {
+                        "type": "object",
+                        "properties": {
+                            "components": {"type": "array", "items": {"type": "string"}},
+                            "nets": {"type": "array", "items": {"type": "string"}},
+                            "pins": {"type": "array", "items": {"type": "string"}},
+                            "datasheets": {"type": "array", "items": {"type": "string"}},
+                            "schematic_pages": {"type": "array", "items": {"type": "integer"}},
+                        },
+                        "additionalProperties": False,
+                    },
+                    "open_uncertainties": {"type": "array", "items": {"type": "string"}},
+                    "stop_reason": {"type": "string"},
+                    "notes": {"type": "string"},
+                },
+                "required": ["selected_tool_call_ids"],
+                "additionalProperties": False,
+            },
+        },
+    ]
+
+
+def _get_item_field(item: Any, key: str, default: Any = None) -> Any:
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _parse_tool_arguments(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            value = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        return value if isinstance(value, dict) else {}
+    return {}
+
+
+def _extract_function_calls(response: Any) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    output_items = _get_item_field(response, "output", []) or []
+    for item in output_items:
+        item_type = str(_get_item_field(item, "type", "")).lower()
+        if item_type not in {"function_call", "tool_call"}:
+            continue
+        calls.append(
+            {
+                "name": str(_get_item_field(item, "name", "") or _get_item_field(item, "tool_name", "")),
+                "call_id": str(_get_item_field(item, "call_id", "") or _get_item_field(item, "id", "")),
+                "arguments": _parse_tool_arguments(_get_item_field(item, "arguments", {})),
+            }
+        )
+    return calls
+
+
+def _coerce_str_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _normalize_finalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    resolved_raw = payload.get("resolved_entities", {})
+    resolved = resolved_raw if isinstance(resolved_raw, dict) else {}
+    pages_raw = resolved.get("schematic_pages", [])
+    pages: list[int] = []
+    if isinstance(pages_raw, list):
+        for page in pages_raw:
+            try:
+                pages.append(int(page))
+            except Exception:
+                continue
+    return {
+        "selected_tool_call_ids": _coerce_str_list(payload.get("selected_tool_call_ids", [])),
+        "resolved_entities": {
+            "components": _coerce_str_list(resolved.get("components", [])),
+            "nets": _coerce_str_list(resolved.get("nets", [])),
+            "pins": _coerce_str_list(resolved.get("pins", [])),
+            "datasheets": _coerce_str_list(resolved.get("datasheets", [])),
+            "schematic_pages": sorted(set(pages)),
+        },
+        "open_uncertainties": _coerce_str_list(payload.get("open_uncertainties", [])),
+        "stop_reason": str(payload.get("stop_reason", "")).strip(),
+        "notes": str(payload.get("notes", "")).strip(),
+    }
+
+
+def _orchestrator_prompt(question: str, limits: AgentLimits) -> str:
+    return (
+        "You are an evidence-gathering hardware QA agent. "
+        "Use tools to collect DSN/BOM/schematic/datasheet evidence before finalizing. "
+        "Prioritize DSN connectivity evidence for wiring questions. "
+        "Do not invent facts. Only finalize once you have adequate evidence or limits force a stop.\n\n"
+        f"Question: {question}\n"
+        "Hard limits:\n"
+        f"- max_iterations={limits.max_iterations}\n"
+        f"- max_tool_calls={limits.max_tool_calls}\n"
+        f"- max_chunks={limits.max_chunks}\n"
+        f"- max_schematic_images={limits.max_schematic_images}\n"
+        f"- max_total_evidence_items={limits.max_total_evidence_items}\n\n"
+        "When done, call finalize_evidence with:\n"
+        "- selected_tool_call_ids: list of call IDs that support your answer\n"
+        "- resolved_entities: components/nets/pins/datasheets/schematic_pages\n"
+        "- open_uncertainties: unresolved risks/unknowns\n"
+        "- stop_reason and optional notes."
+    )
 
 
 def _question_is_relationship(question: str) -> bool:
@@ -260,100 +588,6 @@ def _parse_entities(project_root: Path, question: str) -> dict[str, Any]:
     return entities
 
 
-def _plan_iteration(question: str, state: dict[str, Any], iteration: int) -> list[dict[str, Any]]:
-    actions: list[dict[str, Any]] = []
-    entities = state["entities"]
-    ranked_refs = _rank_refdes_for_question(question, entities)
-    relationship_mode = _question_is_relationship(question)
-
-    if iteration == 1:
-        actions.append({"tool": "list_project_summary", "args": {}})
-        actions.append({"tool": "search_components", "args": {"query": question}})
-    elif not entities.get("refdes"):
-        actions.append({"tool": "search_components", "args": {"query": question}})
-
-    selected_refs: list[str] = []
-    if ranked_refs:
-        selected_refs = ranked_refs[:4] if relationship_mode else ranked_refs[:2]
-    if selected_refs:
-        for ref in selected_refs:
-            actions.append({"tool": "get_component", "args": {"refdes": ref}})
-            actions.append({"tool": "get_component_pins", "args": {"refdes": ref}})
-            actions.append({"tool": "find_datasheets_for_component", "args": {"refdes": ref}})
-            actions.append({"tool": "search_datasheet_chunks", "args": {"refdes": ref, "query": question, "max_results": 4}})
-
-    for net in entities.get("nets", [])[:4]:
-        actions.append({"tool": "get_net_members", "args": {"net_name": net}})
-    if not entities.get("nets"):
-        actions.append({"tool": "search_nets", "args": {"query": question}})
-
-    if _question_is_connectivity(question) or relationship_mode:
-        trace_seed_components = selected_refs[:3] if selected_refs else ranked_refs[:3]
-        actions.append(
-            {
-                "tool": "trace_net_neighborhood",
-                "args": {
-                    "seed_nets": entities.get("nets", [])[:3],
-                    "seed_components": trace_seed_components,
-                    "depth": 1,
-                    "max_nodes": 180,
-                },
-            }
-        )
-
-    actions.append({"tool": "search_pdf_chunks", "args": {"query": question, "source_type": "schematic", "max_results": 4}})
-    actions.append({"tool": "get_schematic_pages", "args": {"query": question, "max_results": 4}})
-    return actions
-
-
-def _sufficiency_check(question: str, state: dict[str, Any]) -> dict[str, Any]:
-    has_dsn = any(item["source_priority"] == "DSN" for item in state["evidence"])
-    has_schematic = any(item["source_priority"] == "schematic" for item in state["evidence"])
-    has_datasheet = any(item["source_priority"] == "datasheet" for item in state["evidence"])
-    is_connectivity = _question_is_connectivity(question)
-    dsn_connectivity_hits = 0
-    for item in state["evidence"]:
-        tool_name = str(item.get("type", ""))
-        data = item.get("data", {})
-        if tool_name == "get_pin_net" and data.get("connected"):
-            dsn_connectivity_hits += 1
-        elif tool_name == "get_net_members":
-            if int(data.get("members", {}).get("pin_count", 0)) > 0:
-                dsn_connectivity_hits += 1
-        elif tool_name == "get_component_pins":
-            if len(data.get("connected_pins", [])) > 0:
-                dsn_connectivity_hits += 1
-        elif tool_name == "trace_net_neighborhood":
-            if data.get("seed_nodes") and int(data.get("node_count", 0)) > 0:
-                dsn_connectivity_hits += 1
-
-    has_structural_resolution = bool(state["entities"].get("nets")) or bool(state.get("resolved_pins"))
-    if is_connectivity:
-        sufficient = has_dsn and (dsn_connectivity_hits > 0) and has_structural_resolution and (has_schematic or has_datasheet)
-        missing = []
-        if not has_dsn:
-            missing.append("missing_dsn_connectivity_evidence")
-        if dsn_connectivity_hits <= 0:
-            missing.append("missing_explicit_dsn_connection_hits")
-        if not has_structural_resolution:
-            missing.append("missing_resolved_nets_or_pins")
-        if not (has_schematic or has_datasheet):
-            missing.append("missing_supporting_context_evidence")
-    else:
-        sufficient = has_dsn or has_datasheet or has_schematic
-        missing = [] if sufficient else ["missing_relevant_evidence"]
-    return {
-        "is_connectivity_question": is_connectivity,
-        "has_dsn": has_dsn,
-        "has_schematic": has_schematic,
-        "has_datasheet": has_datasheet,
-        "dsn_connectivity_hits": dsn_connectivity_hits,
-        "has_structural_resolution": has_structural_resolution,
-        "sufficient": sufficient,
-        "missing": missing,
-    }
-
-
 def _collect_resolved_entities(state: dict[str, Any]) -> dict[str, Any]:
     components = sorted(set(state["entities"].get("refdes", [])))
     nets = sorted(set(state["entities"].get("nets", [])))
@@ -367,6 +601,51 @@ def _collect_resolved_entities(state: dict[str, Any]) -> dict[str, Any]:
         "datasheets": datasheets,
         "schematic_pages": pages,
     }
+
+
+def _apply_result_limits(tool_name: str, result: dict[str, Any], state: dict[str, Any], limits: AgentLimits) -> dict[str, Any]:
+    out = result
+    if tool_name in {"search_pdf_chunks", "search_datasheet_chunks"}:
+        rows = list(out.get("results", []))
+        remaining = max(0, limits.max_chunks - state["chunk_count"])
+        if len(rows) > remaining:
+            rows = rows[:remaining]
+            out = dict(out)
+            out["results"] = rows
+            out["truncated_by_agent_limit"] = "max_chunks"
+        state["chunk_count"] += len(rows)
+    if tool_name == "get_schematic_pages":
+        pages = list(out.get("relevant_pages", []))
+        remaining = max(0, limits.max_schematic_images - state["image_count"])
+        if len(pages) > remaining:
+            pages = pages[:remaining]
+            out = dict(out)
+            out["relevant_pages"] = pages
+            out["truncated_by_agent_limit"] = "max_schematic_images"
+        state["image_count"] += len(pages)
+    return out
+
+
+def _update_state_from_tool(question: str, tool_name: str, result: dict[str, Any], state: dict[str, Any]) -> None:
+    if tool_name == "get_component_pins":
+        for pin, net in result.get("connected_pin_nets", {}).items():
+            state["resolved_pins"].add(f"{result['refdes']}-{pin}")
+            if net:
+                state["entities"].setdefault("nets", [])
+                state["entities"]["nets"].append(net)
+    if tool_name == "search_components":
+        selected_refs = _select_refdes_from_search_results(question, list(result.get("matches", [])))
+        for refdes in selected_refs:
+            state["entities"].setdefault("refdes", [])
+            state["entities"]["refdes"].append(refdes)
+    if tool_name == "find_datasheets_for_component":
+        for ds in result.get("datasheet_candidates", []):
+            state["resolved_datasheets"].add(ds)
+    if tool_name == "get_schematic_pages":
+        for page in result.get("relevant_pages", []):
+            state["resolved_pages"].add(page)
+    state["entities"]["nets"] = sorted(set(state["entities"].get("nets", [])))
+    state["entities"]["refdes"] = sorted(set(state["entities"].get("refdes", [])))
 
 
 def run_evidence_agent(
@@ -405,109 +684,143 @@ def run_evidence_agent(
         "chunk_count": 0,
         "image_count": 0,
     }
-
-    stop_reason = "limits_exhausted"
-    sufficiency = {"sufficient": False, "missing": ["not_evaluated"]}
+    load_dotenv(project_root / ".env")
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        raise SystemExit("Missing OPENAI_API_KEY in environment or .env file.")
+    client = OpenAI(api_key=api_key)
+    tools = _tool_definitions()
+    stop_reason = "max_iterations_reached"
+    finalize_payload: dict[str, Any] = {
+        "selected_tool_call_ids": [],
+        "resolved_entities": {},
+        "open_uncertainties": [],
+        "stop_reason": "",
+        "notes": "",
+    }
+    response = client.responses.create(
+        model=answer_options.model,
+        input=_orchestrator_prompt(question, limits),
+        tools=tools,
+    )
+    finalized = False
     for iteration in range(1, limits.max_iterations + 1):
-        _emit_progress(progress_callback, f"Iteration {iteration}/{limits.max_iterations}: planning tool calls")
-        plan = _plan_iteration(question, state, iteration=iteration)
-        _emit_progress(progress_callback, f"Iteration {iteration}: executing {len(plan)} planned calls")
+        _emit_progress(progress_callback, f"Iteration {iteration}/{limits.max_iterations}: waiting for model tool calls")
+        turn_calls = _extract_function_calls(response)
+        response_id = str(_get_item_field(response, "id", ""))
+        if hasattr(recorder, "record_model_turn"):
+            recorder.record_model_turn(
+                iteration=iteration,
+                response_id=response_id,
+                finish_reason="tool_calls" if turn_calls else "no_tool_calls",
+                requested_tools=[str(call.get("name", "")) for call in turn_calls],
+            )
+        if not turn_calls:
+            stop_reason = "llm_error"
+            break
         iteration_call_ids: list[str] = []
-        for action in plan:
-            if state["tool_call_count"] >= limits.max_tool_calls:
+        tool_outputs: list[dict[str, Any]] = []
+        for call in turn_calls:
+            tool_name = str(call.get("name", "")).strip()
+            call_id = str(call.get("call_id", "")).strip() or f"call_{iteration}_{len(tool_outputs) + 1}"
+            args = call.get("arguments", {})
+            if not isinstance(args, dict):
+                args = {}
+            if tool_name == "finalize_evidence":
+                finalize_payload = _normalize_finalize_payload(args)
+                finalized = True
+                stop_reason = "model_finalize"
+                _emit_progress(progress_callback, "Model requested finalize_evidence")
+                break
+            if state["tool_call_count"] >= limits.max_tool_calls or len(state["evidence"]) >= limits.max_total_evidence_items:
                 stop_reason = "max_tool_calls_reached"
                 _emit_progress(progress_callback, "Reached max tool calls limit; stopping execution")
+                finalized = True
                 break
-            tool_name = action["tool"]
-            args = action["args"]
             _emit_progress(
                 progress_callback,
                 f"Calling tool {tool_name} ({state['tool_call_count'] + 1}/{limits.max_tool_calls})",
             )
             call_started_at = time.perf_counter()
-            result = runtime.call_tool(tool_name, args)
-            if tool_name in {"search_pdf_chunks", "search_datasheet_chunks"}:
-                rows = list(result.get("results", []))
-                remaining = max(0, limits.max_chunks - state["chunk_count"])
-                if len(rows) > remaining:
-                    rows = rows[:remaining]
-                    result = dict(result)
-                    result["results"] = rows
-                    result["truncated_by_agent_limit"] = "max_chunks"
-                state["chunk_count"] += len(rows)
-            if tool_name == "get_schematic_pages":
-                pages = list(result.get("relevant_pages", []))
-                remaining = max(0, limits.max_schematic_images - state["image_count"])
-                if len(pages) > remaining:
-                    pages = pages[:remaining]
-                    result = dict(result)
-                    result["relevant_pages"] = pages
-                    result["truncated_by_agent_limit"] = "max_schematic_images"
-                state["image_count"] += len(pages)
-            call_id = recorder.record_tool_call(name=tool_name, args=args, result=result)
-            iteration_call_ids.append(call_id)
+            try:
+                result = runtime.call_tool(tool_name, args)
+                result = _apply_result_limits(tool_name, result, state, limits)
+            except Exception as exc:
+                result = {"error": str(exc), "tool_name": tool_name, "args": args}
+            record_id = recorder.record_tool_call(name=tool_name, args=args, result=result)
+            iteration_call_ids.append(record_id)
             state["tool_call_count"] += 1
             call_elapsed_ms = int((time.perf_counter() - call_started_at) * 1000)
             _emit_progress(progress_callback, f"Completed {tool_name} in {call_elapsed_ms} ms")
-            evidence_item = {
-                "type": tool_name,
-                "source_priority": _priority_for_tool(tool_name),
-                "claim_supported": f"{tool_name} result for question context",
-                "data": result,
-                "source": {"artifact": result.get("source_artifact") or result.get("source_artifacts", [])},
-                "confidence": _confidence_for_tool(tool_name),
-                "limitations": [],
-                "tool_call_ids": [call_id],
-            }
-            state["evidence"].append(evidence_item)
-            if tool_name == "get_component_pins":
-                for pin, net in result.get("connected_pin_nets", {}).items():
-                    state["resolved_pins"].add(f"{result['refdes']}-{pin}")
-                    if net:
-                        state["entities"].setdefault("nets", [])
-                        state["entities"]["nets"].append(net)
-            if tool_name == "search_components":
-                selected_refs = _select_refdes_from_search_results(question, list(result.get("matches", [])))
-                for refdes in selected_refs:
-                    state["entities"].setdefault("refdes", [])
-                    state["entities"]["refdes"].append(refdes)
-            if tool_name == "find_datasheets_for_component":
-                for ds in result.get("datasheet_candidates", []):
-                    state["resolved_datasheets"].add(ds)
-            if tool_name == "get_schematic_pages":
-                for page in result.get("relevant_pages", []):
-                    state["resolved_pages"].add(page)
-            if len(state["evidence"]) >= limits.max_total_evidence_items:
-                stop_reason = "max_total_evidence_items_reached"
-                _emit_progress(progress_callback, "Reached max total evidence items limit; stopping execution")
-                break
-        state["entities"]["nets"] = sorted(set(state["entities"].get("nets", [])))
-        state["entities"]["refdes"] = sorted(set(state["entities"].get("refdes", [])))
-        sufficiency = _sufficiency_check(question, state)
-        _emit_progress(
-            progress_callback,
-            (
-                f"Iteration {iteration} sufficiency: "
-                f"{'sufficient' if sufficiency.get('sufficient') else 'insufficient'} "
-                f"(dsn_hits={sufficiency.get('dsn_connectivity_hits', 0)})"
-            ),
-        )
+            if "error" not in result:
+                evidence_item = {
+                    "type": tool_name,
+                    "source_priority": _priority_for_tool(tool_name),
+                    "claim_supported": f"{tool_name} result for question context",
+                    "data": result,
+                    "source": {"artifact": result.get("source_artifact") or result.get("source_artifacts", [])},
+                    "confidence": _confidence_for_tool(tool_name),
+                    "limitations": [],
+                    "tool_call_ids": [record_id],
+                }
+                state["evidence"].append(evidence_item)
+                _update_state_from_tool(question, tool_name, result, state)
+            tool_outputs.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(
+                        {
+                            "tool_call_id": record_id,
+                            "tool_name": tool_name,
+                            "result": result,
+                        },
+                        ensure_ascii=True,
+                    ),
+                }
+            )
         recorder.record_iteration(
             iteration=iteration,
-            plan=plan,
+            plan=[{"tool": str(call.get("name", "")), "args": call.get("arguments", {})} for call in turn_calls],
             tool_call_ids=iteration_call_ids,
-            sufficiency=sufficiency,
+            sufficiency={"finalized": finalized, "stop_reason": stop_reason},
         )
-        if sufficiency["sufficient"]:
-            stop_reason = "sufficient_evidence"
+        if finalized:
             break
-        if stop_reason != "limits_exhausted":
+        if not tool_outputs:
+            stop_reason = "llm_error"
             break
-
+        _emit_progress(progress_callback, f"Iteration {iteration}: submitted {len(tool_outputs)} tool outputs to model")
+        response = client.responses.create(
+            model=answer_options.model,
+            previous_response_id=response_id,
+            input=tool_outputs,
+            tools=tools,
+        )
     state["evidence"] = state["evidence"][: limits.max_total_evidence_items]
     resolved_entities = _collect_resolved_entities(state)
+    finalized_entities = finalize_payload.get("resolved_entities", {})
+    if isinstance(finalized_entities, dict):
+        resolved_entities = {
+            "components": sorted(set(resolved_entities["components"]) | set(_coerce_str_list(finalized_entities.get("components", [])))),
+            "nets": sorted(set(resolved_entities["nets"]) | set(_coerce_str_list(finalized_entities.get("nets", [])))),
+            "pins": sorted(set(resolved_entities["pins"]) | set(_coerce_str_list(finalized_entities.get("pins", [])))),
+            "datasheets": sorted(
+                set(resolved_entities["datasheets"]) | set(_coerce_str_list(finalized_entities.get("datasheets", [])))
+            ),
+            "schematic_pages": sorted(
+                set(int(page) for page in resolved_entities["schematic_pages"])
+                | set(int(page) for page in finalized_entities.get("schematic_pages", []) if str(page).isdigit())
+            ),
+        }
+    selected_ids = set(_coerce_str_list(finalize_payload.get("selected_tool_call_ids", [])))
+    selected_evidence = [
+        item for item in state["evidence"] if selected_ids.intersection(set(item.get("tool_call_ids", [])))
+    ]
+    if not selected_evidence:
+        selected_evidence = list(state["evidence"])
     critical_findings, derived_uncertainties = _derive_critical_findings_and_uncertainties(question, state)
-    open_uncertainties = list(sufficiency.get("missing", []))
+    open_uncertainties = _coerce_str_list(finalize_payload.get("open_uncertainties", []))
     open_uncertainties.extend(derived_uncertainties)
     open_uncertainties = list(dict.fromkeys(open_uncertainties))
     if not open_uncertainties:
@@ -521,7 +834,7 @@ def run_evidence_agent(
         "build_evidence_packet",
         {
             "question": question,
-            "selected_evidence": state["evidence"],
+            "selected_evidence": selected_evidence,
             "agent_trace": {"iterations": recorder._iterations, "limits": limits.__dict__, "stop_reason": stop_reason},
             "resolved_entities": resolved_entities,
             "open_uncertainties": open_uncertainties,
@@ -541,13 +854,6 @@ def run_evidence_agent(
     llm_answer_summary: dict[str, Any] | None = None
     if answer_options.answer_with_llm:
         _emit_progress(progress_callback, f"Preparing LLM answer with model {answer_options.model}")
-        load_dotenv(project_root / ".env")
-        import os
-
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise SystemExit("Missing OPENAI_API_KEY in environment or .env file.")
-        client = OpenAI(api_key=api_key)
         relevant_pages = list(packet.get("resolved_entities", {}).get("schematic_pages", []))
         multimodal_content: list[dict[str, Any]] = [{"type": "input_text", "text": prompt_text}]
         image_count = 0
@@ -613,9 +919,10 @@ def run_evidence_agent(
             "question": question,
             "resolved_entities": resolved_entities,
             "evidence_item_count": len(packet.get("evidence", [])),
+            "model_finalize_notes": finalize_payload.get("notes", ""),
         },
     )
-    write_json(out_dir / "agent_trace_summary.json", {"trace": trace_payload, "sufficiency": sufficiency})
+    write_json(out_dir / "agent_trace_summary.json", {"trace": trace_payload, "sufficiency": {"stop_reason": stop_reason}})
     elapsed_ms = int((time.perf_counter() - run_started_at) * 1000)
     _emit_progress(
         progress_callback,

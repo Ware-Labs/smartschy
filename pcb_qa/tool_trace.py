@@ -20,6 +20,7 @@ class ToolTraceRecorder:
     trace_path: Path = field(init=False)
     _tool_call_count: int = field(default=0, init=False)
     _iterations: list[dict[str, Any]] = field(default_factory=list, init=False)
+    _model_turns: list[dict[str, Any]] = field(default_factory=list, init=False)
 
     def __post_init__(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -58,6 +59,23 @@ class ToolTraceRecorder:
             }
         )
 
+    def record_model_turn(
+        self,
+        iteration: int,
+        response_id: str,
+        finish_reason: str,
+        requested_tools: list[str],
+    ) -> None:
+        self._model_turns.append(
+            {
+                "iteration": iteration,
+                "timestamp_utc": _utc_now_iso(),
+                "response_id": response_id,
+                "finish_reason": finish_reason,
+                "requested_tools": requested_tools,
+            }
+        )
+
     def write_trace(self, limits: dict[str, Any], stop_reason: str, summary: dict[str, Any]) -> dict[str, Any]:
         payload = {
             "generated_at_utc": _utc_now_iso(),
@@ -65,6 +83,7 @@ class ToolTraceRecorder:
             "stop_reason": stop_reason,
             "tool_call_count": self._tool_call_count,
             "iterations": self._iterations,
+            "model_turns": self._model_turns,
             "summary": summary,
             "tool_calls_path": str(self.tool_calls_path),
         }

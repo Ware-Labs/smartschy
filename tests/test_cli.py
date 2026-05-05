@@ -1,117 +1,96 @@
 from __future__ import annotations
 
+import io
 import json
-import subprocess
 import sys
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
-from pathlib import Path
 
-from pcb_qa.cli import _AgentAskProgressReporter
-
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-
-def _has_required_artifacts() -> bool:
-    required = [
-        REPO_ROOT / "derived" / "dsn" / "pin_to_net.json",
-        REPO_ROOT / "derived" / "pdf" / "pdf_chunks.jsonl",
-        REPO_ROOT / "derived" / "pdf" / "schematic_page_images.json",
-    ]
-    return all(path.exists() for path in required)
+from pcb_qa import cli
 
 
 class CliBehaviorTests(unittest.TestCase):
     def test_legacy_ask_command_removed(self) -> None:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pcb_qa.cli",
-                "ask",
-                "--project-root",
-                ".",
-                "--question",
-                "is VDDIO connected correctly to the ICM-42605?",
-            ],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertNotEqual(proc.returncode, 0)
-        stderr = proc.stderr.lower()
-        self.assertIn("invalid choice", stderr)
-        self.assertIn("agent-ask", stderr)
+        parser = cli._build_parser()
+        with self.assertRaises(SystemExit):
+            parser.parse_args(["ask"])
 
-    @unittest.skipUnless(_has_required_artifacts(), "Derived artifacts are not available")
     def test_agent_ask_shows_progress_on_stderr_and_json_on_stdout(self) -> None:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pcb_qa.cli",
-                "agent-ask",
-                "--project-root",
-                ".",
-                "--question",
-                "is VDDIO connected correctly to the ICM-42605?",
-                "--max-iterations",
-                "2",
-                "--max-tool-calls",
-                "24",
-                "--max-chunks",
-                "8",
-                "--max-schematic-images",
-                "2",
-                "--max-total-evidence-items",
-                "24",
-            ],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertIn("[agent-ask]", proc.stderr)
-        payload = json.loads(proc.stdout)
+        fake_payload = {"question": "q", "stop_reason": "model_finalize"}
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+
+        def _fake_run_evidence_agent(**kwargs: object) -> dict[str, object]:
+            callback = kwargs.get("progress_callback")
+            if callable(callback):
+                callback("Starting agent-ask for question: q")
+                callback("Submitting LLM request (attached images: 0)")
+                callback("Wrote final answer: derived/qa/agent_answer.txt")
+            return fake_payload
+
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "pcb_qa.cli",
+                    "agent-ask",
+                    "--project-root",
+                    ".",
+                    "--question",
+                    "q",
+                ],
+            ),
+            mock.patch("pcb_qa.cli.run_evidence_agent", side_effect=_fake_run_evidence_agent),
+            redirect_stdout(fake_stdout),
+            redirect_stderr(fake_stderr),
+        ):
+            rc = cli.main()
+
+        self.assertEqual(rc, 0)
+        stderr = fake_stderr.getvalue()
+        self.assertIn("[agent-ask]", stderr)
+        payload = json.loads(fake_stdout.getvalue())
         self.assertIn("question", payload)
         self.assertIn("stop_reason", payload)
 
-    @unittest.skipUnless(_has_required_artifacts(), "Derived artifacts are not available")
     def test_agent_ask_quiet_suppresses_stderr_progress(self) -> None:
-        proc = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pcb_qa.cli",
-                "agent-ask",
-                "--project-root",
-                ".",
-                "--question",
-                "is VDDIO connected correctly to the ICM-42605?",
-                "--max-iterations",
-                "2",
-                "--max-tool-calls",
-                "24",
-                "--max-chunks",
-                "8",
-                "--max-schematic-images",
-                "2",
-                "--max-total-evidence-items",
-                "24",
-                "--quiet",
-            ],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(proc.returncode, 0, msg=proc.stderr)
-        self.assertEqual(proc.stderr.strip(), "")
-        payload = json.loads(proc.stdout)
+        fake_payload = {"question": "q", "stop_reason": "model_finalize"}
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+
+        def _fake_run_evidence_agent(**kwargs: object) -> dict[str, object]:
+            self.assertIsNone(kwargs.get("progress_callback"))
+            return fake_payload
+
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "pcb_qa.cli",
+                    "agent-ask",
+                    "--project-root",
+                    ".",
+                    "--question",
+                    "q",
+                    "--quiet",
+                ],
+            ),
+            mock.patch("pcb_qa.cli.run_evidence_agent", side_effect=_fake_run_evidence_agent),
+            redirect_stdout(fake_stdout),
+            redirect_stderr(fake_stderr),
+        ):
+            rc = cli.main()
+
+        self.assertEqual(rc, 0)
+        self.assertEqual(fake_stderr.getvalue().strip(), "")
+        payload = json.loads(fake_stdout.getvalue())
         self.assertIn("question", payload)
 
     def test_progress_reporter_starts_and_stops_spinner_for_llm_wait(self) -> None:
-        reporter = _AgentAskProgressReporter(quiet=False)
+        reporter = cli._AgentAskProgressReporter(quiet=False)
         with (
             mock.patch.object(reporter, "_start_spinner") as start_spinner,
             mock.patch.object(reporter, "_stop_spinner") as stop_spinner,

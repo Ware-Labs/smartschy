@@ -6,7 +6,7 @@ questions using:
 - deterministic connectivity from Altium Specctra DSN,
 - BOM identity mapping,
 - section-aware PDF chunking for schematic/datasheets,
-- exact-first retrieval with constrained semantic expansion,
+- an LLM-driven multi-turn tool loop over deterministic local tools,
 - citation-aware inference prompting.
 
 ## Quick start
@@ -19,6 +19,7 @@ questions using:
 4. Agent-driven ask (iterative evidence acquisition + trace):
    - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
    - Shows live progress lines on stderr while running.
+   - Supports `--quiet` to suppress progress output.
 5. Agent-driven ask + final LLM answer:
    - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?" --answer-with-llm --model gpt-5 --image-detail high`
 6. Optional: run local MCP evidence server:
@@ -27,3 +28,9 @@ questions using:
    - `python -m pcb_qa.cli validate --project-root .`
 
 Outputs are written to `derived/`.
+
+Evidence-loop stop reasons are:
+- `model_finalize`
+- `max_tool_calls_reached`
+- `max_iterations_reached`
+- `llm_error`
