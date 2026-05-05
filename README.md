@@ -18,7 +18,13 @@ questions using:
    - `python -m pcb_qa.cli ingest --project-root .`
 4. Ask a question (builds evidence packet + prompt):
    - `python -m pcb_qa.cli ask --project-root . --question "did I connect the crystal correctly to the microcontroller?"`
-5. Run validation harness:
+5. Agent-driven ask (iterative evidence acquisition + trace):
+   - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
+6. Agent-driven ask + final LLM answer:
+   - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?" --answer-with-llm --model gpt-5 --image-detail high`
+7. Optional: run local MCP evidence server:
+   - `python -m pcb_qa.cli mcp-server`
+8. Run validation harness:
    - `python -m pcb_qa.cli validate --project-root .`
 
 Outputs are written to `derived/`.
