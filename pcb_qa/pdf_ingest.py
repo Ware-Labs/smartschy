@@ -10,6 +10,11 @@ try:
 except ImportError:  # pragma: no cover
     PdfReader = None
 
+try:
+    import fitz  # PyMuPDF
+except ImportError:  # pragma: no cover
+    fitz = None
+
 
 MAX_CHUNK_CHARS = 1800
 CHUNK_OVERLAP_CHARS = 250
@@ -81,11 +86,48 @@ def _chunk_text(text: str) -> list[str]:
     return chunks
 
 
+def _render_schematic_page_images(schematic_pdf: Path, output_dir: Path) -> dict[str, object]:
+    if fitz is None:
+        raise RuntimeError(
+            "PyMuPDF is required for schematic page image rendering. "
+            "Install dependencies from requirements.txt."
+        )
+    images_dir = output_dir / "schematic_pages"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    doc = fitz.open(str(schematic_pdf))
+    images: list[dict[str, object]] = []
+    for page_idx, page in enumerate(doc, start=1):
+        pix = page.get_pixmap(dpi=150, alpha=False)
+        image_name = f"page_{page_idx:04d}.png"
+        image_path = images_dir / image_name
+        pix.save(str(image_path))
+        images.append(
+            {
+                "page_number": page_idx,
+                "image_path": str(image_path.relative_to(output_dir)),
+                "width": pix.width,
+                "height": pix.height,
+            }
+        )
+    doc.close()
+
+    manifest = {
+        "schematic_pdf": schematic_pdf.name,
+        "images_dir": str(images_dir.relative_to(output_dir)),
+        "page_count": len(images),
+        "images": images,
+    }
+    write_json(output_dir / "schematic_page_images.json", manifest)
+    return manifest
+
+
 def build_pdf_chunks(
     schematic_pdf: Path, resources_dir: Path, output_dir: Path
 ) -> dict[str, int]:
     output_dir.mkdir(parents=True, exist_ok=True)
     chunk_rows: list[dict] = []
+    image_manifest = _render_schematic_page_images(schematic_pdf, output_dir)
 
     schematic_pages = _extract_pdf_pages(schematic_pdf)
     for page_idx, page_text in enumerate(schematic_pages, start=1):
@@ -136,7 +178,12 @@ def build_pdf_chunks(
             "schematic_pdf": schematic_pdf.name,
             "datasheet_files": [f.name for f in datasheet_files],
             "chunk_count": len(chunk_rows),
+            "schematic_page_images_manifest": "schematic_page_images.json",
         },
     )
-    return {"pdf_chunk_count": len(chunk_rows), "datasheet_files": len(datasheet_files)}
+    return {
+        "pdf_chunk_count": len(chunk_rows),
+        "datasheet_files": len(datasheet_files),
+        "schematic_page_image_count": int(image_manifest.get("page_count", 0)),
+    }
 

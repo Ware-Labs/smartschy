@@ -1,0 +1,60 @@
+{
+  "roles": {
+    "microcontroller": {
+      "aliases": ["mcu", "microcontroller", "soc", "processor", "application core"],
+      "signals": ["nrf", "stm32", "esp32", "samd", "mcu", "module"],
+      "refdes_prefixes": ["U", "MOD"],
+      "negative_terms": ["connector", "resistor", "capacitor"],
+      "top_n": 4
+    },
+    "module": {
+      "aliases": ["module", "radio module", "bluetooth module", "wireless module"],
+      "signals": ["module", "transceiver", "bluetooth", "zigbee", "thread"],
+      "refdes_prefixes": ["MOD", "U"],
+      "negative_terms": ["test point"],
+      "top_n": 4
+    },
+    "crystal": {
+      "aliases": ["crystal", "xtal", "lfxtal", "oscillator", "32.768khz", "32k"],
+      "signals": ["crystal", "xtal", "32.768", "xl1", "xl2", "lfclk"],
+      "refdes_prefixes": ["X", "Y"],
+      "negative_terms": ["oscillator ic"],
+      "top_n": 3
+    },
+    "imu": {
+      "aliases": ["imu", "accelerometer", "gyroscope", "gyro", "motion sensor"],
+      "signals": ["icm", "lsm", "bmi", "accelerometer", "gyroscope"],
+      "refdes_prefixes": ["U"],
+      "negative_terms": [],
+      "top_n": 3
+    },
+    "usb_connector": {
+      "aliases": ["usb", "usb-c", "type-c", "connector", "receptacle"],
+      "signals": ["usb", "type-c", "receptacle", "cc1", "cc2", "vbus"],
+      "refdes_prefixes": ["J", "P"],
+      "negative_terms": ["test point"],
+      "top_n": 3
+    },
+    "test_point": {
+      "aliases": ["test point", "test points", "tp", "probe point"],
+      "signals": ["test point", "tp", "pad"],
+      "refdes_prefixes": ["TP"],
+      "negative_terms": [],
+      "top_n": 12
+    },
+    "i2c": {
+      "aliases": ["i2c", "i3c", "scl", "sda", "two wire"],
+      "signals": ["i2c", "scl", "sda"],
+      "refdes_prefixes": [],
+      "negative_terms": [],
+      "top_n": 0
+    },
+    "debug_interface": {
+      "aliases": ["swd", "jtag", "debug", "programming header"],
+      "signals": ["swd", "jtag", "debug"],
+      "refdes_prefixes": ["J", "P"],
+      "negative_terms": [],
+      "top_n": 3
+    }
+  }
+}

@@ -1,1 +1,1 @@
-python ask_and_answer.py --project-root . --question "did I connect the crystal correctly to the microcontroller?" --model "gpt-5.4"
+python "ask_and_answer.py" --project-root . --question "is VDDIO connected correctly to the ICM-42605?" --model "gpt-5" --max-schematic-images 4 --image-detail high

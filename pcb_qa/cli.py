@@ -21,9 +21,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ask_cmd.add_argument("--question", type=str, required=True)
     ask_cmd.add_argument("--net-walk-depth", type=int, default=1)
     ask_cmd.add_argument("--top-k", type=int, default=6)
+    ask_cmd.add_argument("--resolver-mode", choices=["config", "legacy"], default="config")
 
     validate_cmd = sub.add_parser("validate", help="Run validation harness.")
     validate_cmd.add_argument("--project-root", type=Path, required=True)
+    validate_cmd.add_argument("--resolver-mode", choices=["config", "legacy"], default="config")
 
     return parser
 
@@ -40,9 +42,10 @@ def main() -> int:
             args.question,
             net_walk_depth=args.net_walk_depth,
             top_k=args.top_k,
+            resolver_mode=args.resolver_mode,
         )
     elif args.command == "validate":
-        payload = run_validation(args.project_root)
+        payload = run_validation(args.project_root, resolver_mode=args.resolver_mode)
     else:  # pragma: no cover
         parser.error(f"Unsupported command: {args.command}")
         return 2

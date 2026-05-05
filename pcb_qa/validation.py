@@ -6,7 +6,7 @@ from .qa import answer_question
 from .utils import write_json
 
 
-VALIDATION_QUESTIONS = [
+BOARD_SPECIFIC_QUESTIONS = [
     {
         "id": "q1",
         "question": "did I connect the crystal correctly to the microcontroller?",
@@ -49,6 +49,29 @@ VALIDATION_QUESTIONS = [
     },
 ]
 
+SYNTHETIC_GENERALIZATION_QUESTIONS = [
+    {
+        "id": "g1",
+        "question": "is the low-frequency crystal wired correctly to the processor?",
+        "expected_focus": ["CRYSTAL", "MICROCONTROLLER", "X", "XL"],
+    },
+    {
+        "id": "g2",
+        "question": "show evidence for debug interface connectivity",
+        "expected_focus": ["DEBUG_INTERFACE", "SWD", "JTAG"],
+    },
+    {
+        "id": "g3",
+        "question": "which components look like test points and what nets are they on?",
+        "expected_focus": ["TEST_POINT", "TP"],
+    },
+    {
+        "id": "g4",
+        "question": "what i2c lines exist and where do they connect?",
+        "expected_focus": ["I2C", "SCL", "SDA"],
+    },
+]
+
 
 def _contains_focus(summary: dict, expected_tokens: list[str]) -> bool:
     blob = " ".join(
@@ -57,15 +80,22 @@ def _contains_focus(summary: dict, expected_tokens: list[str]) -> bool:
             " ".join(summary.get("entities", {}).get("nets", [])),
             " ".join(summary.get("entities", {}).get("symbols", [])),
             " ".join(summary.get("entities", {}).get("roles", [])),
+            " ".join(summary.get("entities", {}).get("unresolved_roles", [])),
         ]
     ).upper()
     return any(token.upper().replace("\\", "") in blob.replace("\\", "") for token in expected_tokens)
 
 
-def run_validation(project_root: Path) -> dict:
+def _run_suite(project_root: Path, questions: list[dict], resolver_mode: str) -> dict:
     runs = []
-    for row in VALIDATION_QUESTIONS:
-        summary = answer_question(project_root, row["question"], net_walk_depth=1, top_k=6)
+    for row in questions:
+        summary = answer_question(
+            project_root,
+            row["question"],
+            net_walk_depth=1,
+            top_k=6,
+            resolver_mode=resolver_mode,
+        )
         runs.append(
             {
                 "id": row["id"],
@@ -76,11 +106,30 @@ def run_validation(project_root: Path) -> dict:
             }
         )
     passed = sum(1 for row in runs if row["heuristic_pass"])
-    report = {
+    return {
         "total": len(runs),
         "passed_heuristic": passed,
         "failed_heuristic": len(runs) - passed,
         "runs": runs,
+    }
+
+
+def run_validation(project_root: Path, resolver_mode: str = "config") -> dict:
+    board = _run_suite(project_root, BOARD_SPECIFIC_QUESTIONS, resolver_mode=resolver_mode)
+    synthetic = _run_suite(
+        project_root,
+        SYNTHETIC_GENERALIZATION_QUESTIONS,
+        resolver_mode=resolver_mode,
+    )
+    report = {
+        "resolver_mode": resolver_mode,
+        "board_specific": board,
+        "synthetic_generalization": synthetic,
+        "totals": {
+            "total": board["total"] + synthetic["total"],
+            "passed_heuristic": board["passed_heuristic"] + synthetic["passed_heuristic"],
+            "failed_heuristic": board["failed_heuristic"] + synthetic["failed_heuristic"],
+        },
         "note": "Heuristic pass only; final adjudication should be manual with citations.",
     }
     output_dir = project_root / "derived" / "validation"
