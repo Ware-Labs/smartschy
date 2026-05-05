@@ -104,6 +104,9 @@ def build_evidence_packet(
         "evidence": normalized,
         "open_uncertainties": open_uncertainties or [],
         "critical_findings": critical_findings or [],
+        "functional_hypotheses": [],
+        "anomaly_findings": [],
+        "evidence_diversity_metrics": {},
         "recommended_answer_constraints": recommended_answer_constraints or [],
     }
     return packet

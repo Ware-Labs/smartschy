@@ -7,6 +7,21 @@ from typing import Any
 
 from .utils import canonical_net_name, cosine_similarity, hash_embedding, read_json, read_jsonl, tokenize
 
+VALID_COMPONENT_TYPES = {
+    "ic",
+    "resistor",
+    "capacitor",
+    "inductor",
+    "diode_led",
+    "connector",
+    "header",
+    "test_point",
+    "switch",
+    "crystal",
+    "module",
+    "other",
+}
+
 
 def resolve_project_root(project_root: Path | str) -> Path:
     root = Path(project_root).resolve()
@@ -17,6 +32,8 @@ def resolve_project_root(project_root: Path | str) -> Path:
 
 def _component_type(refdes: str) -> str:
     token = "".join(ch for ch in refdes.upper() if ch.isalpha())
+    if token.startswith("MOD"):
+        return "module"
     if token.startswith("U"):
         return "ic"
     if token.startswith("R"):
@@ -105,6 +122,34 @@ class DerivedArtifactStore:
     def schematic_image_manifest(self) -> dict[str, Any]:
         return self._load_json("derived/pdf/schematic_page_images.json", "schematic_image_manifest")
 
+    @property
+    def function_blocks(self) -> list[dict[str, Any]]:
+        return self._load_json("derived/kg/function_blocks.json", "function_blocks").get("blocks", [])
+
+    @property
+    def power_domains(self) -> list[dict[str, Any]]:
+        return self._load_json("derived/kg/power_domains.json", "power_domains").get("domains", [])
+
+    @property
+    def interface_buses(self) -> list[dict[str, Any]]:
+        return self._load_json("derived/kg/interface_buses.json", "interface_buses").get("buses", [])
+
+    @property
+    def connectivity_anomalies(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/qa/connectivity_anomalies.jsonl", "connectivity_anomalies")
+
+    @property
+    def llm_block_semantics(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/kg/llm_block_semantics.jsonl", "llm_block_semantics")
+
+    @property
+    def llm_interface_hypotheses(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/kg/llm_interface_hypotheses.jsonl", "llm_interface_hypotheses")
+
+    @property
+    def llm_analog_classification(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/kg/llm_analog_classification.jsonl", "llm_analog_classification")
+
 
 def list_project_summary(project_root: Path | str) -> dict[str, Any]:
     store = DerivedArtifactStore(project_root)
@@ -116,6 +161,10 @@ def list_project_summary(project_root: Path | str) -> dict[str, Any]:
         "components_bom": len(store.refdes_to_part),
         "pdf_chunks": len(store.pdf_chunks),
         "schematic_images": int(store.schematic_image_manifest.get("page_count", 0)),
+        "function_blocks": len(store.function_blocks),
+        "power_domains": len(store.power_domains),
+        "interface_buses": len(store.interface_buses),
+        "connectivity_anomalies": len(store.connectivity_anomalies),
     }
     artifacts = {
         "ingest_summary": str(store.project_root / "derived" / "ingest_summary.json"),
@@ -133,6 +182,14 @@ def list_project_summary(project_root: Path | str) -> dict[str, Any]:
             "chunk_manifest": str(store.project_root / "derived" / "pdf" / "pdf_chunk_manifest.json"),
             "chunks": str(store.project_root / "derived" / "pdf" / "pdf_chunks.jsonl"),
             "schematic_images": str(store.project_root / "derived" / "pdf" / "schematic_page_images.json"),
+        },
+        "kg": {
+            "function_blocks": str(store.project_root / "derived" / "kg" / "function_blocks.json"),
+            "power_domains": str(store.project_root / "derived" / "kg" / "power_domains.json"),
+            "interface_buses": str(store.project_root / "derived" / "kg" / "interface_buses.json"),
+        },
+        "qa": {
+            "connectivity_anomalies": str(store.project_root / "derived" / "qa" / "connectivity_anomalies.jsonl"),
         },
     }
     return {"project_root": str(store.project_root), "ingest_summary": summary, "counts": counts, "source_artifacts": artifacts}
@@ -155,11 +212,18 @@ def _search_blob_for_component(refdes: str, part_meta: dict[str, Any]) -> str:
 def search_components(project_root: Path | str, query: str, component_type: str | None = None) -> dict[str, Any]:
     store = DerivedArtifactStore(project_root)
     q = query.strip().lower()
+    if "*" in q or "?" in q:
+        raise ValueError("Wildcard component queries are not supported; use explicit text.")
     q_tokens = set(tokenize(query))
+    normalized_type = (component_type or "").strip().lower()
+    if normalized_type == "module":
+        normalized_type = "module"
+    if normalized_type and normalized_type not in VALID_COMPONENT_TYPES:
+        raise ValueError(f"Invalid component_type={component_type!r}; valid values: {sorted(VALID_COMPONENT_TYPES)}")
     rows: list[dict[str, Any]] = []
     for refdes, meta in store.refdes_to_part.items():
         bucket = _component_type(refdes)
-        if component_type and bucket != component_type:
+        if normalized_type and bucket != normalized_type:
             continue
         blob = _search_blob_for_component(refdes, meta)
         score = 0.0
@@ -183,7 +247,7 @@ def search_components(project_root: Path | str, query: str, component_type: str 
             }
         )
     rows.sort(key=lambda row: (row["score"], row["refdes"]), reverse=True)
-    return {"query": query, "component_type_filter": component_type, "matches": rows, "source_artifacts": ["derived/bom/refdes_to_part.json"]}
+    return {"query": query, "component_type_filter": normalized_type or None, "matches": rows, "source_artifacts": ["derived/bom/refdes_to_part.json"]}
 
 
 def get_component(project_root: Path | str, refdes: str) -> dict[str, Any]:
@@ -603,6 +667,57 @@ def get_component_context_bundle(
             "derived/pdf/pdf_chunks.jsonl",
             "derived/pdf/schematic_page_images.json",
         ],
+    }
+
+
+def get_function_blocks(project_root: Path | str) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    return {
+        "blocks": store.function_blocks,
+        "llm_semantics": store.llm_block_semantics,
+        "source_artifacts": [
+            "derived/kg/function_blocks.json",
+            "derived/kg/llm_block_semantics.jsonl",
+        ],
+    }
+
+
+def get_power_domains(project_root: Path | str) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    return {
+        "domains": store.power_domains,
+        "source_artifacts": ["derived/kg/power_domains.json"],
+    }
+
+
+def get_interface_buses(project_root: Path | str) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    return {
+        "buses": store.interface_buses,
+        "llm_hypotheses": store.llm_interface_hypotheses,
+        "source_artifacts": [
+            "derived/kg/interface_buses.json",
+            "derived/kg/llm_interface_hypotheses.jsonl",
+        ],
+    }
+
+
+def get_connectivity_anomalies(
+    project_root: Path | str,
+    severity: str | None = None,
+    refdes: str | None = None,
+) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    rows = list(store.connectivity_anomalies)
+    if severity:
+        rows = [row for row in rows if str(row.get("severity", "")).lower() == severity.strip().lower()]
+    if refdes:
+        needle = refdes.strip().upper()
+        rows = [row for row in rows if str(row.get("refdes", "")).upper() == needle]
+    return {
+        "filters": {"severity": severity, "refdes": refdes},
+        "results": rows,
+        "source_artifacts": ["derived/qa/connectivity_anomalies.jsonl"],
     }
 
 

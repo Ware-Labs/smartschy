@@ -1,1 +1,1 @@
-python "ask_and_answer.py" --project-root . --question "is VDDIO connected correctly to the ICM-42605?" --model "gpt-5" --max-schematic-images 4 --image-detail high
+python -m pcb_qa.cli agent-ask --project-root . --question "what's SW3 for?" --answer-with-llm --model gpt-5 --image-detail high

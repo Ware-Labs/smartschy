@@ -145,6 +145,30 @@ def build_mcp_server() -> Any:
         )
 
     @mcp.tool()
+    def get_function_blocks(project_root: str) -> dict:
+        return evidence_tools.get_function_blocks(_to_path(project_root))
+
+    @mcp.tool()
+    def get_power_domains(project_root: str) -> dict:
+        return evidence_tools.get_power_domains(_to_path(project_root))
+
+    @mcp.tool()
+    def get_interface_buses(project_root: str) -> dict:
+        return evidence_tools.get_interface_buses(_to_path(project_root))
+
+    @mcp.tool()
+    def get_connectivity_anomalies(
+        project_root: str,
+        severity: str | None = None,
+        refdes: str | None = None,
+    ) -> dict:
+        return evidence_tools.get_connectivity_anomalies(
+            _to_path(project_root),
+            severity=severity,
+            refdes=refdes,
+        )
+
+    @mcp.tool()
     def build_evidence_packet(
         project_root: str,
         question: str,

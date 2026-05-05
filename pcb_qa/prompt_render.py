@@ -6,21 +6,37 @@ from typing import Any
 
 def render_prompt_from_evidence_packet(packet: dict[str, Any]) -> str:
     critical_findings = packet.get("critical_findings", []) or []
+    intent = str(packet.get("intent", "system_function"))
+    diversity = packet.get("evidence_diversity_metrics", {}) or {}
+    hypotheses = packet.get("functional_hypotheses", []) or []
+    anomaly_findings = packet.get("anomaly_findings", []) or []
     critical_block = ""
     if critical_findings:
         lines = "\n".join(f"- {item}" for item in critical_findings)
         critical_block = f"Critical DSN Findings:\n{lines}\n\n"
+    hypothesis_block = ""
+    if hypotheses:
+        lines = "\n".join(f"- {item}" for item in hypotheses)
+        hypothesis_block = f"Functional Hypotheses:\n{lines}\n\n"
+    anomaly_block = ""
+    if anomaly_findings:
+        lines = "\n".join(f"- {item}" for item in anomaly_findings)
+        anomaly_block = f"Anomaly Findings:\n{lines}\n\n"
 
     return (
         "You are a senior hardware design review assistant.\n"
         "Use only the supplied evidence packet. If evidence is incomplete, say so explicitly.\n\n"
+        f"Question intent: {intent}\n"
+        f"Evidence diversity metrics: {diversity}\n\n"
         "Evidence priority order: DSN connectivity > schematic text/image > datasheet text > BOM metadata > inferred heuristics.\n"
         "Never invent values, pins, or nets.\n"
         "If DSN confirms connectivity but pin-function evidence is missing, state that limitation.\n"
         "If any required pin is floating or unresolved in DSN evidence, call it out explicitly.\n\n"
         f"{critical_block}"
+        f"{hypothesis_block}"
+        f"{anomaly_block}"
         "Required answer format:\n"
-        "1) Verdict: one sentence\n"
+        "1) Verdict: 2-4 sentences, may be expressive and descriptive, but must stay grounded in supplied evidence\n"
         "2) Reasoning: 3-6 bullet points tied to evidence IDs\n"
         "3) Citations: bullet list of evidence IDs used\n"
         "4) Uncertainty: explicit missing info, low-confidence evidence, unresolved entities\n\n"

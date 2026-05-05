@@ -6,8 +6,8 @@ questions using:
 - deterministic connectivity from Altium Specctra DSN,
 - BOM identity mapping,
 - section-aware PDF chunking for schematic/datasheets,
-- an LLM-driven multi-turn tool loop over deterministic local tools,
-- citation-aware inference prompting.
+- typed knowledge artifacts (blocks/domains/buses/anomalies),
+- single-mode intent-routed retrieval with evidence quality gates.
 
 ## Quick start
 
@@ -16,7 +16,9 @@ questions using:
    - `pip install -r requirements.txt`
 3. Build indices:
    - `python -m pcb_qa.cli ingest --project-root .`
-4. Agent-driven ask (iterative evidence acquisition + trace):
+   - Optional semantic LLM enrichment during ingest:
+   - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5-mini`
+4. Agent ask (single-mode deterministic retrieval + trace):
    - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
    - Shows live progress lines on stderr while running.
    - Supports `--quiet` to suppress progress output.
@@ -29,8 +31,6 @@ questions using:
 
 Outputs are written to `derived/`.
 
-Evidence-loop stop reasons are:
-- `model_finalize`
-- `max_tool_calls_reached`
-- `max_iterations_reached`
-- `llm_error`
+Single-mode stop reasons include:
+- `single_mode_complete`
+- `insufficient_breadth`

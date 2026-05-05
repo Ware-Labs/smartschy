@@ -108,8 +108,7 @@ def _contains_focus(summary: dict, packet: dict, expected_tokens: list[str]) -> 
     return any(token.upper().replace("\\", "") in blob.replace("\\", "") for token in expected_tokens)
 
 
-def _run_suite(project_root: Path, questions: list[dict], resolver_mode: str) -> dict:
-    _ = resolver_mode
+def _run_suite(project_root: Path, questions: list[dict]) -> dict:
     runs = []
     for row in questions:
         summary = run_evidence_agent(
@@ -143,15 +142,11 @@ def _run_suite(project_root: Path, questions: list[dict], resolver_mode: str) ->
     }
 
 
-def run_validation(project_root: Path, resolver_mode: str = "config") -> dict:
-    board = _run_suite(project_root, BOARD_SPECIFIC_QUESTIONS, resolver_mode=resolver_mode)
-    synthetic = _run_suite(
-        project_root,
-        SYNTHETIC_GENERALIZATION_QUESTIONS,
-        resolver_mode=resolver_mode,
-    )
+def run_validation(project_root: Path) -> dict:
+    board = _run_suite(project_root, BOARD_SPECIFIC_QUESTIONS)
+    synthetic = _run_suite(project_root, SYNTHETIC_GENERALIZATION_QUESTIONS)
     report = {
-        "resolver_mode": resolver_mode,
+        "mode": "single_mode",
         "board_specific": board,
         "synthetic_generalization": synthetic,
         "totals": {

@@ -80,10 +80,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ingest_cmd = sub.add_parser("ingest", help="Build all local indices.")
     ingest_cmd.add_argument("--project-root", type=Path, required=True)
+    ingest_cmd.add_argument("--llm-enrich", action="store_true", help="Enable optional LLM semantic enrichment during ingest.")
+    ingest_cmd.add_argument("--llm-model", type=str, default="gpt-5-mini")
 
     validate_cmd = sub.add_parser("validate", help="Run validation harness.")
     validate_cmd.add_argument("--project-root", type=Path, required=True)
-    validate_cmd.add_argument("--resolver-mode", choices=["config", "legacy"], default="config")
 
     agent_ask_cmd = sub.add_parser(
         "agent-ask",
@@ -111,9 +112,13 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "ingest":
-        payload = ingest_project(args.project_root)
+        payload = ingest_project(
+            args.project_root,
+            llm_enrich=bool(args.llm_enrich),
+            llm_model=str(args.llm_model),
+        )
     elif args.command == "validate":
-        payload = run_validation(args.project_root, resolver_mode=args.resolver_mode)
+        payload = run_validation(args.project_root)
     elif args.command == "agent-ask":
         reporter = _AgentAskProgressReporter(quiet=args.quiet)
         limits = AgentLimits(

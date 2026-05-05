@@ -15,6 +15,8 @@ def _has_required_artifacts() -> bool:
         REPO_ROOT / "derived" / "dsn" / "pin_to_net.json",
         REPO_ROOT / "derived" / "dsn" / "nets.jsonl",
         REPO_ROOT / "derived" / "pdf" / "pdf_chunks.jsonl",
+        REPO_ROOT / "derived" / "kg" / "function_blocks.json",
+        REPO_ROOT / "derived" / "qa" / "connectivity_anomalies.jsonl",
     ]
     return all(path.exists() for path in required)
 
@@ -55,6 +57,21 @@ class EvidenceToolTests(unittest.TestCase):
         self.assertIn("top_datasheet_chunks", payload)
         self.assertIn("related_schematic_pages", payload)
 
+    def test_function_block_and_anomaly_tools(self) -> None:
+        blocks = evidence_tools.get_function_blocks(REPO_ROOT)
+        self.assertIn("blocks", blocks)
+        self.assertGreater(len(blocks["blocks"]), 0)
+
+        domains = evidence_tools.get_power_domains(REPO_ROOT)
+        self.assertIn("domains", domains)
+        self.assertGreater(len(domains["domains"]), 0)
+
+        buses = evidence_tools.get_interface_buses(REPO_ROOT)
+        self.assertIn("buses", buses)
+
+        anomalies = evidence_tools.get_connectivity_anomalies(REPO_ROOT)
+        self.assertIn("results", anomalies)
+
 
 class McpServerImportTests(unittest.TestCase):
     def test_mcp_server_can_build_when_dependency_present(self) -> None:
@@ -75,12 +92,15 @@ class PromptRenderTests(unittest.TestCase):
     def test_render_prompt_includes_critical_findings_block(self) -> None:
         packet = {
             "question": "is VDDIO connected correctly to the ICM-42605?",
+            "intent": "pin_validation",
+            "evidence_diversity_metrics": {"distinct_nets": 4},
             "critical_findings": ["DSN: U3-5 is floating (unconnected), contradicting expected VDDIO tie."],
             "evidence": [],
         }
         prompt = render_prompt_from_evidence_packet(packet)
         self.assertIn("Critical DSN Findings:", prompt)
         self.assertIn("U3-5 is floating", prompt)
+        self.assertIn("Question intent:", prompt)
 
 
 if __name__ == "__main__":
