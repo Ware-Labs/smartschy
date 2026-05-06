@@ -103,6 +103,64 @@ class CliBehaviorTests(unittest.TestCase):
         self.assertGreaterEqual(stop_spinner.call_count, 1)
         self.assertEqual(print_line.call_count, 2)
 
+    def test_ingest_uses_explicit_input_paths_when_provided(self) -> None:
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        fake_payload = {"ok": True}
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "pcb_qa.cli",
+                    "ingest",
+                    "--project-root",
+                    ".",
+                    "--dsn-path",
+                    "a.dsn",
+                    "--bom-csv-path",
+                    "b.csv",
+                    "--schematic-pdf",
+                    "s.pdf",
+                    "--resources-dir",
+                    "resources",
+                ],
+            ),
+            mock.patch("pcb_qa.cli.ingest_project_with_inputs", return_value=fake_payload) as explicit_ingest,
+            mock.patch("pcb_qa.cli.ingest_project") as legacy_ingest,
+            redirect_stdout(fake_stdout),
+            redirect_stderr(fake_stderr),
+        ):
+            rc = cli.main()
+
+        self.assertEqual(rc, 0)
+        explicit_ingest.assert_called_once()
+        legacy_ingest.assert_not_called()
+        payload = json.loads(fake_stdout.getvalue())
+        self.assertEqual(payload["ok"], True)
+
+    def test_ingest_rejects_partial_explicit_paths(self) -> None:
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "pcb_qa.cli",
+                    "ingest",
+                    "--project-root",
+                    ".",
+                    "--dsn-path",
+                    "a.dsn",
+                ],
+            ),
+            redirect_stdout(fake_stdout),
+            redirect_stderr(fake_stderr),
+        ):
+            with self.assertRaises(SystemExit):
+                cli.main()
+
 
 if __name__ == "__main__":
     unittest.main()

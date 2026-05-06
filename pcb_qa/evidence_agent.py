@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import base64
 from dataclasses import dataclass, field
 import json
@@ -48,6 +49,21 @@ ProgressCallback = Callable[[str], None]
 def _emit_progress(progress_callback: ProgressCallback | None, message: str) -> None:
     if progress_callback is not None:
         progress_callback(message)
+
+
+def _write_timestamped_markdown_answer(out_dir: Path, question: str, answer_text: str, model: str) -> Path:
+    responses_dir = out_dir / "responses"
+    responses_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    md_path = responses_dir / f"response_{stamp}.md"
+    content = (
+        f"# PCB QA Response ({stamp})\n\n"
+        f"**Model:** `{model}`\n\n"
+        f"## Question\n\n{question}\n\n"
+        f"## Answer\n\n{answer_text}\n"
+    )
+    md_path.write_text(content, encoding="utf-8")
+    return md_path
 
 
 def _priority_for_source(source_type: str) -> str:
@@ -570,10 +586,17 @@ def run_evidence_agent(
         except OpenAIError as exc:
             raise SystemExit(f"OpenAI request failed for model '{answer_options.model}'. Details: {exc}") from exc
         answer_path.write_text(text, encoding="utf-8")
+        markdown_answer_path = _write_timestamped_markdown_answer(
+            out_dir=out_dir,
+            question=question,
+            answer_text=text,
+            model=answer_options.model,
+        )
         llm_answer = {
             "answer_generated": True,
             "model": answer_options.model,
             "answer_path": str(answer_path),
+            "markdown_answer_path": str(markdown_answer_path),
             "attached_schematic_images": len(state.selected_image_pages[: answer_options.max_schematic_images_for_answer]),
             "answer_preview": text[:500],
         }
