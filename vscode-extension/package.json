@@ -1,0 +1,148 @@
+{
+  "name": "smartschy-pcb-qa",
+  "displayName": "Smartschy PCB QA",
+  "description": "VS Code UI wrapper for the Precision PCB QA Python engine.",
+  "version": "0.0.1",
+  "publisher": "smartschy",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:smartschy.resourcesView",
+    "onView:smartschy.chatView",
+    "onCommand:smartschy.openSchematicViewer",
+    "onCommand:smartschy.addDsn",
+    "onCommand:smartschy.addBom",
+    "onCommand:smartschy.addSchematic",
+    "onCommand:smartschy.addDatasheets",
+    "onCommand:smartschy.runIngest",
+    "onCommand:smartschy.retryIngest",
+    "onCommand:smartschy.cancelIngest",
+    "onCommand:smartschy.cancelAsk",
+    "onCommand:smartschy.retryAsk",
+    "onCommand:smartschy.resetWorkflow"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "smartschyResourcesContainer",
+          "title": "PCB QA",
+          "icon": "media/pcb.svg"
+        }
+      ]
+    },
+    "views": {
+      "smartschyResourcesContainer": [
+        {
+          "id": "smartschy.resourcesView",
+          "name": "Resources"
+        },
+        {
+          "id": "smartschy.chatView",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "smartschy.openSchematicViewer",
+        "title": "PCB QA: Open Schematic Viewer"
+      },
+      {
+        "command": "smartschy.addDsn",
+        "title": "PCB QA: Add DSN"
+      },
+      {
+        "command": "smartschy.addBom",
+        "title": "PCB QA: Add BOM"
+      },
+      {
+        "command": "smartschy.addSchematic",
+        "title": "PCB QA: Add Schematic PDF"
+      },
+      {
+        "command": "smartschy.addDatasheets",
+        "title": "PCB QA: Add Datasheets"
+      },
+      {
+        "command": "smartschy.runIngest",
+        "title": "PCB QA: Ingest"
+      },
+      {
+        "command": "smartschy.cancelIngest",
+        "title": "PCB QA: Cancel Ingest"
+      },
+      {
+        "command": "smartschy.retryIngest",
+        "title": "PCB QA: Retry Ingest"
+      },
+      {
+        "command": "smartschy.cancelAsk",
+        "title": "PCB QA: Cancel Chat Request"
+      },
+      {
+        "command": "smartschy.retryAsk",
+        "title": "PCB QA: Retry Last Chat Request"
+      },
+      {
+        "command": "smartschy.resetWorkflow",
+        "title": "PCB QA: Reset Workflow"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "smartschy.addDsn",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@1"
+        },
+        {
+          "command": "smartschy.addBom",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@2"
+        },
+        {
+          "command": "smartschy.addSchematic",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@3"
+        },
+        {
+          "command": "smartschy.addDatasheets",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@4"
+        },
+        {
+          "command": "smartschy.runIngest",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@5"
+        },
+        {
+          "command": "smartschy.openSchematicViewer",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@6"
+        },
+        {
+          "command": "smartschy.retryIngest",
+          "when": "view == smartschy.resourcesView",
+          "group": "navigation@7"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -p ./ -w",
+    "lint": "tsc --noEmit -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.4"
+  }
+}

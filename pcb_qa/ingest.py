@@ -9,17 +9,12 @@ from .semantic_index import build_semantic_indices
 from .utils import write_json
 
 
-def ingest_project(
-    project_root: Path,
-    llm_enrich: bool = False,
-    llm_model: str = "gpt-5-mini",
-) -> dict[str, object]:
-    keen_root = project_root / "keen3_filet"
-    dsn_path = keen_root / "keen3_filet.dsn"
-    bom_csv_path = keen_root / "Bill of Materials-keen3_filet.csv"
-    schematic_pdf = keen_root / "keen3_filet_2026-05-04.pdf"
-    resources_dir = keen_root / "resources"
-
+def _validate_inputs(
+    dsn_path: Path,
+    bom_csv_path: Path,
+    schematic_pdf: Path,
+    resources_dir: Path,
+) -> None:
     if not dsn_path.exists():
         raise FileNotFoundError(f"Missing DSN file: {dsn_path}")
     if not bom_csv_path.exists():
@@ -28,6 +23,24 @@ def ingest_project(
         raise FileNotFoundError(f"Missing schematic PDF: {schematic_pdf}")
     if not resources_dir.exists():
         raise FileNotFoundError(f"Missing datasheet directory: {resources_dir}")
+
+
+def ingest_project_with_inputs(
+    *,
+    project_root: Path,
+    dsn_path: Path,
+    bom_csv_path: Path,
+    schematic_pdf: Path,
+    resources_dir: Path,
+    llm_enrich: bool = False,
+    llm_model: str = "gpt-5-mini",
+) -> dict[str, object]:
+    _validate_inputs(
+        dsn_path=dsn_path,
+        bom_csv_path=bom_csv_path,
+        schematic_pdf=schematic_pdf,
+        resources_dir=resources_dir,
+    )
 
     derived_dir = project_root / "derived"
     dsn_dir = derived_dir / "dsn"
@@ -67,3 +80,25 @@ def ingest_project(
     }
     write_json(derived_dir / "ingest_summary.json", summary)
     return summary
+
+
+def ingest_project(
+    project_root: Path,
+    llm_enrich: bool = False,
+    llm_model: str = "gpt-5-mini",
+) -> dict[str, object]:
+    keen_root = project_root / "keen3_filet"
+    dsn_path = keen_root / "keen3_filet.dsn"
+    bom_csv_path = keen_root / "Bill of Materials-keen3_filet.csv"
+    schematic_pdf = keen_root / "keen3_filet_2026-05-04.pdf"
+    resources_dir = keen_root / "resources"
+
+    return ingest_project_with_inputs(
+        project_root=project_root,
+        dsn_path=dsn_path,
+        bom_csv_path=bom_csv_path,
+        schematic_pdf=schematic_pdf,
+        resources_dir=resources_dir,
+        llm_enrich=llm_enrich,
+        llm_model=llm_model,
+    )

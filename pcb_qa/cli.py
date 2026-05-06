@@ -9,7 +9,7 @@ import time
 
 from .evidence_agent import AgentLimits, AnswerOptions, run_evidence_agent
 from .mcp_server import main as run_mcp_server
-from .ingest import ingest_project
+from .ingest import ingest_project, ingest_project_with_inputs
 from .validation import run_validation
 
 
@@ -80,6 +80,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ingest_cmd = sub.add_parser("ingest", help="Build all local indices.")
     ingest_cmd.add_argument("--project-root", type=Path, required=True)
+    ingest_cmd.add_argument("--dsn-path", type=Path, default=None, help="Optional explicit DSN input path.")
+    ingest_cmd.add_argument("--bom-csv-path", type=Path, default=None, help="Optional explicit BOM CSV input path.")
+    ingest_cmd.add_argument("--schematic-pdf", type=Path, default=None, help="Optional explicit schematic PDF input path.")
+    ingest_cmd.add_argument("--resources-dir", type=Path, default=None, help="Optional explicit datasheet directory path.")
     ingest_cmd.add_argument("--llm-enrich", action="store_true", help="Enable optional LLM semantic enrichment during ingest.")
     ingest_cmd.add_argument("--llm-model", type=str, default="gpt-5-mini")
 
@@ -113,11 +117,35 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command == "ingest":
-        payload = ingest_project(
-            args.project_root,
-            llm_enrich=bool(args.llm_enrich),
-            llm_model=str(args.llm_model),
-        )
+        explicit_inputs = [
+            args.dsn_path,
+            args.bom_csv_path,
+            args.schematic_pdf,
+            args.resources_dir,
+        ]
+        has_explicit_inputs = any(path is not None for path in explicit_inputs)
+        has_partial_inputs = any(path is None for path in explicit_inputs)
+        if has_explicit_inputs and has_partial_inputs:
+            parser.error(
+                "When using explicit ingest inputs, provide all of --dsn-path, --bom-csv-path, --schematic-pdf, and --resources-dir."
+            )
+            return 2
+        if has_explicit_inputs:
+            payload = ingest_project_with_inputs(
+                project_root=args.project_root,
+                dsn_path=args.dsn_path,
+                bom_csv_path=args.bom_csv_path,
+                schematic_pdf=args.schematic_pdf,
+                resources_dir=args.resources_dir,
+                llm_enrich=bool(args.llm_enrich),
+                llm_model=str(args.llm_model),
+            )
+        else:
+            payload = ingest_project(
+                args.project_root,
+                llm_enrich=bool(args.llm_enrich),
+                llm_model=str(args.llm_model),
+            )
     elif args.command == "validate":
         payload = run_validation(args.project_root)
     elif args.command == "agent-ask":

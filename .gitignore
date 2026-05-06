@@ -43,3 +43,5 @@ llm/
 07_bom_crosswalk.json
 
 .env
+
+vscode-extension/node_modules/

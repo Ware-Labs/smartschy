@@ -16,6 +16,8 @@ questions using:
    - `pip install -r requirements.txt`
 3. Build indices:
    - `python -m pcb_qa.cli ingest --project-root .`
+   - Optional explicit ingest inputs (used by the VS Code extension):
+   - `python -m pcb_qa.cli ingest --project-root . --dsn-path ./keen3_filet/keen3_filet.dsn --bom-csv-path "./keen3_filet/Bill of Materials-keen3_filet.csv" --schematic-pdf ./keen3_filet/keen3_filet_2026-05-04.pdf --resources-dir ./keen3_filet/resources`
    - Optional semantic LLM enrichment during ingest:
    - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5`
 4. Agent ask (LLM-driven planner + coverage verifier + selective schematic image policy):
