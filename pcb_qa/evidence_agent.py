@@ -36,6 +36,7 @@ class AgentLimits:
 @dataclass
 class AnswerOptions:
     answer_with_llm: bool = False
+    planner_model: str = "gpt-5-mini"
     model: str = "gpt-5"
     max_schematic_images_for_answer: int = 4
     image_detail: str = "auto"
@@ -468,10 +469,10 @@ def run_evidence_agent(
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     planner_used_llm = bool(api_key and OpenAI is not None)
     if planner_used_llm:
-        _emit_progress(progress_callback, "Running iterative LLM tool planner")
+        _emit_progress(progress_callback, f"Running iterative LLM tool planner using {answer_options.planner_model}")
         try:
             client = OpenAI(api_key=api_key)
-            _run_llm_tool_loop(client, answer_options.model, runtime, question, limits, progress_callback)
+            _run_llm_tool_loop(client, answer_options.planner_model, runtime, question, limits, progress_callback)
         except OpenAIError:
             planner_used_llm = False
     if not planner_used_llm:

@@ -41,7 +41,7 @@ def render_prompt_from_evidence_packet(packet: dict[str, Any]) -> str:
         f"{hypothesis_block}"
         f"{anomaly_block}"
         "Required answer format:\n"
-        "1) Verdict: 2-4 sentences, may be expressive and descriptive, but must stay grounded in supplied evidence\n"
+        "1) Verdict: 2-10 sentences, may be expressive and descriptive, but must stay grounded in supplied evidence\n"
         "2) Reasoning: 3-6 bullet points tied to evidence IDs\n"
         "3) Citations: bullet list of evidence IDs used\n"
         "4) Uncertainty: explicit missing info, low-confidence evidence, unresolved entities\n\n"

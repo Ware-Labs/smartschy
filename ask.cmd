@@ -1,1 +1,1 @@
-python -m pcb_qa.cli agent-ask --project-root . --question "why are there solder bridges on the LEDs?" --answer-with-llm --model gpt-5 --image-detail high
+python -m pcb_qa.cli agent-ask --project-root . --question "I don't think I need pin 18 on U6, but I exposed a test point just in case. Confirm that I likely don't need it for this application?" --answer-with-llm --model gpt-5 --image-detail high

@@ -17,7 +17,7 @@ questions using:
 3. Build indices:
    - `python -m pcb_qa.cli ingest --project-root .`
    - Optional semantic LLM enrichment during ingest:
-   - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5-mini`
+   - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5`
 4. Agent ask (LLM-driven planner + coverage verifier + selective schematic image policy):
    - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
    - Shows live progress lines on stderr while running.

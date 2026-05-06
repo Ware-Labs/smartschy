@@ -98,6 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     agent_ask_cmd.add_argument("--max-schematic-images", type=int, default=4)
     agent_ask_cmd.add_argument("--max-total-evidence-items", type=int, default=64)
     agent_ask_cmd.add_argument("--answer-with-llm", action="store_true")
+    agent_ask_cmd.add_argument("--planner-model", type=str, default="gpt-5-mini")
     agent_ask_cmd.add_argument("--model", type=str, default="gpt-5")
     agent_ask_cmd.add_argument("--image-detail", choices=["auto", "low", "high"], default="auto")
     agent_ask_cmd.add_argument("--quiet", action="store_true", help="Suppress progress output on stderr.")
@@ -135,6 +136,7 @@ def main() -> int:
                 limits=limits,
                 answer_options=AnswerOptions(
                     answer_with_llm=args.answer_with_llm,
+                    planner_model=args.planner_model,
                     model=args.model,
                     max_schematic_images_for_answer=args.max_schematic_images,
                     image_detail=args.image_detail,
