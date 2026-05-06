@@ -6,8 +6,8 @@ questions using:
 - deterministic connectivity from Altium Specctra DSN,
 - BOM identity mapping,
 - section-aware PDF chunking for schematic/datasheets,
-- exact-first retrieval with constrained semantic expansion,
-- citation-aware inference prompting.
+- typed knowledge artifacts (blocks/domains/buses/anomalies),
+- LLM-driven iterative evidence orchestration with obligation coverage gates.
 
 ## Quick start
 
@@ -16,9 +16,26 @@ questions using:
    - `pip install -r requirements.txt`
 3. Build indices:
    - `python -m pcb_qa.cli ingest --project-root .`
-4. Ask a question (builds evidence packet + prompt):
-   - `python -m pcb_qa.cli ask --project-root . --question "did I connect the crystal correctly to the microcontroller?"`
-5. Run validation harness:
+   - Optional semantic LLM enrichment during ingest:
+   - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5`
+4. Agent ask (LLM-driven planner + coverage verifier + selective schematic image policy):
+   - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
+   - Shows live progress lines on stderr while running.
+   - Supports `--quiet` to suppress progress output.
+5. Agent-driven ask + final LLM answer:
+   - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?" --answer-with-llm --model gpt-5 --image-detail high`
+6. Optional: run local MCP evidence server:
+   - `python -m pcb_qa.cli mcp-server`
+7. Run validation harness:
    - `python -m pcb_qa.cli validate --project-root .`
 
 Outputs are written to `derived/`.
+
+Key QA outputs now include:
+- `derived/qa/obligations.json`
+- `derived/qa/coverage_report.json`
+- `derived/qa/agent_evidence_packet.json` (with `missing_obligations`, `tool_decision_trace`, and `image_selection_trace`)
+
+Stop reasons include:
+- `coverage_satisfied_finalize`
+- `coverage_incomplete`

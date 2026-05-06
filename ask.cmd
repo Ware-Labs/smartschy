@@ -1,1 +1,1 @@
-python "ask_and_answer.py" --project-root . --question "is VDDIO connected correctly to the ICM-42605?" --model "gpt-5" --max-schematic-images 4 --image-detail high
+python -m pcb_qa.cli agent-ask --project-root . --question "I don't think I need pin 18 on U6, but I exposed a test point just in case. Confirm that I likely don't need it for this application?" --answer-with-llm --model gpt-5 --image-detail high
