@@ -50,8 +50,117 @@ let runningIngest;
 let runningAsk;
 let activeConversation;
 let lastQuestion = "";
+let persistWorkspaceRoot = "";
 function nowIso() {
     return new Date().toISOString();
+}
+function compactTimestamp(now = new Date()) {
+    const yyyy = String(now.getFullYear());
+    const mm = String(now.getMonth() + 1).padStart(2, "0");
+    const dd = String(now.getDate()).padStart(2, "0");
+    const hh = String(now.getHours()).padStart(2, "0");
+    const mi = String(now.getMinutes()).padStart(2, "0");
+    const ss = String(now.getSeconds()).padStart(2, "0");
+    return `${yyyy}${mm}${dd}_${hh}${mi}${ss}`;
+}
+async function ensureMarkdownResponseFile(workspaceRoot, question, answerText, preferredPath) {
+    if (preferredPath) {
+        return preferredPath;
+    }
+    const responsesDir = path.join(workspaceRoot, "derived", "qa", "responses");
+    await fs.mkdir(responsesDir, { recursive: true });
+    const stamp = compactTimestamp();
+    const mdPath = path.join(responsesDir, `response_${stamp}.md`);
+    const body = [
+        `# PCB QA Response (${stamp})`,
+        "",
+        "## Question",
+        "",
+        question,
+        "",
+        "## Answer",
+        "",
+        answerText,
+        "",
+    ].join("\n");
+    await fs.writeFile(mdPath, body, "utf8");
+    return mdPath;
+}
+async function fileExists(filePath) {
+    if (!filePath) {
+        return false;
+    }
+    try {
+        await fs.access(filePath);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function buildResourceSignature(resources) {
+    const files = [
+        resources.dsnPath,
+        resources.bomCsvPath,
+        resources.schematicPdfPath,
+        ...resources.datasheetMappings.map((row) => row.mappedPath),
+    ]
+        .filter((p) => Boolean(p))
+        .sort((a, b) => a.localeCompare(b));
+    const parts = [];
+    for (const filePath of files) {
+        try {
+            const stat = await fs.stat(filePath);
+            parts.push(`${filePath}|${stat.size}|${Math.trunc(stat.mtimeMs)}`);
+        }
+        catch {
+            parts.push(`${filePath}|missing`);
+        }
+    }
+    return parts.join("\n");
+}
+async function persistWorkflowState(workflow) {
+    if (!persistWorkspaceRoot) {
+        return;
+    }
+    const stateDir = (0, workflowState_1.getQaStateDir)(persistWorkspaceRoot);
+    await fs.mkdir(stateDir, { recursive: true });
+    const statePath = path.join(stateDir, "workflow_state.json");
+    await fs.writeFile(statePath, JSON.stringify(workflow, null, 2), "utf8");
+}
+async function loadPersistedWorkflowState(workspaceRoot) {
+    const statePath = path.join((0, workflowState_1.getQaStateDir)(workspaceRoot), "workflow_state.json");
+    try {
+        const raw = await fs.readFile(statePath, "utf8");
+        const parsed = JSON.parse(raw);
+        const persistedResources = parsed.resources ?? workflowState_1.initialWorkflowState.resources;
+        const resources = {
+            dsnPath: (await fileExists(persistedResources.dsnPath)) ? persistedResources.dsnPath : undefined,
+            bomCsvPath: (await fileExists(persistedResources.bomCsvPath)) ? persistedResources.bomCsvPath : undefined,
+            schematicPdfPath: (await fileExists(persistedResources.schematicPdfPath)) ? persistedResources.schematicPdfPath : undefined,
+            resourcesDir: persistedResources.resourcesDir,
+            datasheetMappings: [],
+            unmatchedParts: persistedResources.unmatchedParts ?? [],
+        };
+        for (const mapping of persistedResources.datasheetMappings ?? []) {
+            if (await fileExists(mapping.mappedPath)) {
+                resources.datasheetMappings.push(mapping);
+            }
+        }
+        const currentSignature = await buildResourceSignature(resources);
+        const status = parsed.lastIngestSignature && parsed.lastIngestSignature === currentSignature
+            ? "READY_FOR_CHAT"
+            : (0, workflowState_1.nextStatusFromResources)(resources);
+        return {
+            ...parsed,
+            status,
+            resources,
+            lastError: undefined,
+        };
+    }
+    catch {
+        return undefined;
+    }
 }
 function summarizeConversation(messages) {
     const userLine = messages.find((msg) => msg.role === "user")?.content ?? "No question";
@@ -64,13 +173,17 @@ function normalizeState(resources) {
         ...state,
         resources,
         status: (0, workflowState_1.nextStatusFromResources)(resources),
+        ingestSummaryPath: undefined,
         lastError: undefined,
+        lastIngestSignature: undefined,
+        lastIngestAt: undefined,
     };
 }
 function applyState(next, resourcesView, chatView) {
     state = next;
     resourcesView.updateState(state);
     chatView.updateWorkflowState(state);
+    void persistWorkflowState(state);
 }
 async function pickSingleFile(filters) {
     const selected = await vscode.window.showOpenDialog({
@@ -81,37 +194,16 @@ async function pickSingleFile(filters) {
     });
     return selected?.[0]?.fsPath;
 }
-async function promptManualDatasheetMatches(unmatchedParts, datasheetPaths, resourcesDir) {
-    const mappings = [];
-    for (const part of unmatchedParts) {
-        const picks = datasheetPaths.map((datasheetPath) => ({
-            label: path.basename(datasheetPath),
-            description: datasheetPath,
-            datasheetPath,
-        }));
-        picks.push({
-            label: "Skip for now",
-            description: `Leave ${part.partNumber} unmapped`,
-            datasheetPath: "",
-        });
-        const picked = await vscode.window.showQuickPick(picks, {
-            title: `Map datasheet for ${part.partNumber}`,
-            placeHolder: `${part.manufacturer || "Unknown manufacturer"} | choose a datasheet match`,
-        });
-        if (!picked || !picked.datasheetPath) {
-            continue;
-        }
-        const safePartNumber = part.partNumber.trim().replace(/[\\/:*?"<>|]/g, "_");
-        const mappedPath = path.join(resourcesDir, `${safePartNumber}.pdf`);
-        await fs.copyFile(picked.datasheetPath, mappedPath);
-        mappings.push({
-            manufacturer: part.manufacturer,
-            partNumber: part.partNumber,
-            sourcePath: picked.datasheetPath,
-            mappedPath,
-        });
+async function listPdfFiles(dirPath) {
+    try {
+        const names = await fs.readdir(dirPath);
+        return names
+            .filter((name) => name.toLowerCase().endsWith(".pdf"))
+            .map((name) => path.join(dirPath, name));
     }
-    return mappings;
+    catch {
+        return [];
+    }
 }
 function appendStatus(chatView, content) {
     chatView.addMessage({ role: "status", content, timestamp: nowIso() });
@@ -150,9 +242,10 @@ async function ensureConversation(store, chatView) {
 }
 function activate(context) {
     const workspaceRoot = (0, workflowState_1.getWorkspaceRoot)();
+    persistWorkspaceRoot = workspaceRoot;
     const runner = new pythonRunner_1.PythonRunner({ cwd: workspaceRoot });
     const conversationStore = new conversationStore_1.ConversationStore(workspaceRoot);
-    const resourcesView = new resourcesTreeProvider_1.ResourcesTreeProvider(state);
+    const resourcesView = new resourcesTreeProvider_1.ResourcesTreeProvider(state, workspaceRoot);
     const schematicPanel = new schematicPanel_1.SchematicPanel();
     const chatView = new chatViewProvider_1.ChatViewProvider(context.extensionUri, state, (cmd) => {
         if (cmd.type === "ask") {
@@ -202,22 +295,24 @@ function activate(context) {
             return;
         }
         const resourcesDir = path.join(workspaceRoot, ".smartschy", "resources");
-        const mappingResult = await (0, bomDatasheetMapper_1.mapDatasheetsFromBom)(state.resources.bomCsvPath, selected.map((item) => item.fsPath), resourcesDir);
-        let mappings = mappingResult.mappings;
-        if (mappingResult.unmatchedParts.length > 0) {
-            const manualMappings = await promptManualDatasheetMatches(mappingResult.unmatchedParts, selected.map((item) => item.fsPath), resourcesDir);
-            const byPart = new Map();
-            for (const mapping of [...mappings, ...manualMappings]) {
-                byPart.set(mapping.partNumber.toLowerCase(), mapping);
-            }
-            mappings = [...byPart.values()].sort((a, b) => a.partNumber.localeCompare(b.partNumber));
-        }
+        const existingPdfFiles = await listPdfFiles(resourcesDir);
+        const allDatasheets = [...new Set([...existingPdfFiles, ...selected.map((item) => item.fsPath)])];
+        const mappingResult = await (0, bomDatasheetMapper_1.mapDatasheetsFromBom)(state.resources.bomCsvPath, allDatasheets, resourcesDir);
+        const mappings = mappingResult.mappings;
         const status = mappings.length > 0 ? "DATASHEETS_MAPPED" : "FILES_SELECTED";
         applyState({
             ...state,
             status,
-            resources: { ...state.resources, resourcesDir, datasheetMappings: mappings },
+            ingestSummaryPath: undefined,
+            resources: {
+                ...state.resources,
+                resourcesDir,
+                datasheetMappings: mappings,
+                unmatchedParts: mappingResult.unmatchedParts,
+            },
             lastError: undefined,
+            lastIngestSignature: undefined,
+            lastIngestAt: undefined,
         }, resourcesView, chatView);
         if (mappings.length === 0) {
             vscode.window.showWarningMessage("No datasheets matched BOM part numbers.");
@@ -227,6 +322,37 @@ function activate(context) {
             const mappedCount = mappings.length;
             vscode.window.showInformationMessage(`Mapped ${mappedCount} datasheets. ${Math.max(totalParts - mappedCount, 0)} part numbers remain unmapped.`);
         }
+    }), vscode.commands.registerCommand("smartschy.mapUnmatchedPart", async (part) => {
+        if (!state.resources.bomCsvPath) {
+            vscode.window.showWarningMessage("Add a BOM first.");
+            return;
+        }
+        const resourcesDir = state.resources.resourcesDir ?? path.join(workspaceRoot, ".smartschy", "resources");
+        const selectedPath = await pickSingleFile({ PDF: ["pdf"] });
+        if (!selectedPath) {
+            return;
+        }
+        const safePartNumber = part.partNumber.trim().replace(/[\\/:*?"<>|]/g, "_");
+        const targetPath = path.join(resourcesDir, `${safePartNumber}.pdf`);
+        await fs.mkdir(resourcesDir, { recursive: true });
+        await fs.copyFile(selectedPath, targetPath);
+        const allDatasheets = await listPdfFiles(resourcesDir);
+        const remap = await (0, bomDatasheetMapper_1.mapDatasheetsFromBom)(state.resources.bomCsvPath, allDatasheets, resourcesDir);
+        applyState({
+            ...state,
+            status: remap.mappings.length > 0 ? "DATASHEETS_MAPPED" : "FILES_SELECTED",
+            ingestSummaryPath: undefined,
+            resources: {
+                ...state.resources,
+                resourcesDir,
+                datasheetMappings: remap.mappings,
+                unmatchedParts: remap.unmatchedParts,
+            },
+            lastError: undefined,
+            lastIngestSignature: undefined,
+            lastIngestAt: undefined,
+        }, resourcesView, chatView);
+        vscode.window.showInformationMessage(`Mapped ${part.partNumber} to ${path.basename(selectedPath)}.`);
     }), vscode.commands.registerCommand("smartschy.runIngest", async () => {
         await runIngest();
     }), vscode.commands.registerCommand("smartschy.retryIngest", async () => {
@@ -252,6 +378,10 @@ function activate(context) {
         chatView.setMessages([]);
     }));
     void (async () => {
+        const restored = await loadPersistedWorkflowState(workspaceRoot);
+        if (restored) {
+            applyState(restored, resourcesView, chatView);
+        }
         const existing = await conversationStore.listConversations();
         activeConversation = existing[0] ?? createConversation();
         chatView.setConversation(activeConversation);
@@ -302,7 +432,15 @@ function activate(context) {
             return;
         }
         const ingestSummaryPath = path.join(workspaceRoot, "derived", "ingest_summary.json");
-        applyState({ ...state, status: "READY_FOR_CHAT", ingestSummaryPath, lastError: undefined }, resourcesView, chatView);
+        const lastIngestSignature = await buildResourceSignature(state.resources);
+        applyState({
+            ...state,
+            status: "READY_FOR_CHAT",
+            ingestSummaryPath,
+            lastError: undefined,
+            lastIngestSignature,
+            lastIngestAt: nowIso(),
+        }, resourcesView, chatView);
         appendStatus(chatView, "Ingest complete. Chat is now enabled.");
     }
     async function runAgentAsk(question) {
@@ -325,8 +463,9 @@ function activate(context) {
             ? `${question}\n\nPrevious conversation context:\n- ${priorContext.join("\n- ")}`
             : question;
         appendStatus(chatView, "Submitting agent-ask request...");
-        let lastStdoutJson = "";
+        const stdoutLines = [];
         let lastAnswerPath = "";
+        let lastMarkdownPath = "";
         let askError = "";
         const cmd = runner.runModule([
             "-m",
@@ -343,8 +482,7 @@ function activate(context) {
             "high",
         ], {
             onStdout: (line) => {
-                lastStdoutJson = line;
-                appendStatus(chatView, line);
+                stdoutLines.push(line);
             },
             onStderr: (line) => {
                 askError = line;
@@ -365,6 +503,20 @@ function activate(context) {
             return;
         }
         let assistantContent = "Completed request.";
+        const rawStdout = stdoutLines.join("\n");
+        let payload = {};
+        try {
+            payload = JSON.parse(rawStdout);
+        }
+        catch {
+            payload = {};
+        }
+        if (payload.llm_answer?.answer_path) {
+            lastAnswerPath = payload.llm_answer.answer_path;
+        }
+        if (payload.llm_answer?.markdown_answer_path) {
+            lastMarkdownPath = payload.llm_answer.markdown_answer_path;
+        }
         if (lastAnswerPath) {
             try {
                 assistantContent = await fs.readFile(lastAnswerPath, "utf8");
@@ -374,18 +526,7 @@ function activate(context) {
             }
         }
         else {
-            try {
-                const payload = JSON.parse(lastStdoutJson);
-                if (payload.answer_path) {
-                    assistantContent = await fs.readFile(payload.answer_path, "utf8");
-                }
-                else {
-                    assistantContent = `Completed with stop reason: ${payload.stop_reason ?? "unknown"}`;
-                }
-            }
-            catch {
-                assistantContent = lastStdoutJson || assistantContent;
-            }
+            assistantContent = `Completed with stop reason: ${payload.stop_reason ?? "unknown"}`;
         }
         appendChat(chatView, "assistant", assistantContent);
         const updatedConversation = withConversationMessage(activeConversation, {
@@ -396,6 +537,16 @@ function activate(context) {
         activeConversation = updatedConversation;
         chatView.setConversation(updatedConversation);
         await conversationStore.upsertConversation(updatedConversation);
+        const ensuredMarkdownPath = await ensureMarkdownResponseFile(workspaceRoot, question, assistantContent, lastMarkdownPath);
+        resourcesView.updateState(state);
+        const markdownUri = vscode.Uri.file(ensuredMarkdownPath);
+        try {
+            await vscode.commands.executeCommand("markdown.showPreview", markdownUri);
+        }
+        catch {
+            await vscode.commands.executeCommand("vscode.open", markdownUri);
+        }
+        appendStatus(chatView, `Opened markdown response: ${path.basename(ensuredMarkdownPath)}`);
     }
 }
 function deactivate() {

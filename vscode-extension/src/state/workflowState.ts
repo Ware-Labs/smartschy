@@ -17,12 +17,20 @@ export interface DatasheetMapping {
   mappedPath: string;
 }
 
+export interface UnmatchedPart {
+  manufacturer: string;
+  partNumber: string;
+  refdes: string;
+  category: "passive" | "ic" | "other";
+}
+
 export interface WorkflowResources {
   dsnPath?: string;
   bomCsvPath?: string;
   schematicPdfPath?: string;
   resourcesDir?: string;
   datasheetMappings: DatasheetMapping[];
+  unmatchedParts: UnmatchedPart[];
 }
 
 export interface WorkflowState {
@@ -30,12 +38,15 @@ export interface WorkflowState {
   resources: WorkflowResources;
   ingestSummaryPath?: string;
   lastError?: string;
+  lastIngestSignature?: string;
+  lastIngestAt?: string;
 }
 
 export const initialWorkflowState: WorkflowState = {
   status: "EMPTY",
   resources: {
     datasheetMappings: [],
+    unmatchedParts: [],
   },
 };
 

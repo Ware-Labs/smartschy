@@ -96,45 +96,7 @@
         "title": "PCB QA: Reset Workflow"
       }
     ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "smartschy.addDsn",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@1"
-        },
-        {
-          "command": "smartschy.addBom",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@2"
-        },
-        {
-          "command": "smartschy.addSchematic",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@3"
-        },
-        {
-          "command": "smartschy.addDatasheets",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@4"
-        },
-        {
-          "command": "smartschy.runIngest",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@5"
-        },
-        {
-          "command": "smartschy.openSchematicViewer",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@6"
-        },
-        {
-          "command": "smartschy.retryIngest",
-          "when": "view == smartschy.resourcesView",
-          "group": "navigation@7"
-        }
-      ]
-    }
+    "menus": {}
   },
   "scripts": {
     "build": "tsc -p ./",

@@ -69,6 +69,19 @@ function sanitizePartNumber(partNumber) {
 function normalizeToken(value) {
     return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
+function classifyPart(refdes) {
+    const first = refdes
+        .split(",")[0]
+        .trim()
+        .toUpperCase();
+    if (/^(R|C|L|FB|RT)\d+/.test(first)) {
+        return "passive";
+    }
+    if (/^U\d+/.test(first)) {
+        return "ic";
+    }
+    return "other";
+}
 function dedupeBomRows(rows) {
     const byPart = new Map();
     for (const row of rows) {
@@ -95,20 +108,27 @@ async function parseBomPartRows(bomCsvPath) {
         return [];
     }
     const headers = parseCsvLine(lines[0]);
+    const designatorIdx = headers.findIndex((h) => h.trim().toLowerCase() === "designator");
     const manufacturerIdx = headers.findIndex((h) => h.trim().toLowerCase() === "manufacturer");
     const partNumberIdx = headers.findIndex((h) => h.trim().toLowerCase() === "part number");
-    if (manufacturerIdx < 0 || partNumberIdx < 0) {
+    if (manufacturerIdx < 0 || partNumberIdx < 0 || designatorIdx < 0) {
         return [];
     }
     const rows = [];
     for (let i = 1; i < lines.length; i += 1) {
         const cells = parseCsvLine(lines[i]);
+        const refdes = (cells[designatorIdx] ?? "").trim();
         const manufacturer = (cells[manufacturerIdx] ?? "").trim();
         const partNumber = (cells[partNumberIdx] ?? "").trim();
-        if (!partNumber) {
+        if (!partNumber || !refdes) {
             continue;
         }
-        rows.push({ manufacturer, partNumber });
+        rows.push({
+            manufacturer,
+            partNumber,
+            refdes,
+            category: classifyPart(refdes),
+        });
     }
     return rows;
 }

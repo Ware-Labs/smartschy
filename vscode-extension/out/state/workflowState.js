@@ -44,6 +44,7 @@ exports.initialWorkflowState = {
     status: "EMPTY",
     resources: {
         datasheetMappings: [],
+        unmatchedParts: [],
     },
 };
 function getWorkspaceRoot() {

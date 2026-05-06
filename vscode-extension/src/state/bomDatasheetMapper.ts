@@ -1,15 +1,17 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import { DatasheetMapping } from "./workflowState";
+import { DatasheetMapping, UnmatchedPart } from "./workflowState";
 
-interface BomRow {
+export interface BomRow {
   manufacturer: string;
   partNumber: string;
+  refdes: string;
+  category: "passive" | "ic" | "other";
 }
 
 export interface DatasheetMapResult {
   mappings: DatasheetMapping[];
-  unmatchedParts: BomRow[];
+  unmatchedParts: UnmatchedPart[];
 }
 
 function parseCsvLine(line: string): string[] {
@@ -46,6 +48,20 @@ function normalizeToken(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function classifyPart(refdes: string): "passive" | "ic" | "other" {
+  const first = refdes
+    .split(",")[0]
+    .trim()
+    .toUpperCase();
+  if (/^(R|C|L|FB|RT)\d+/.test(first)) {
+    return "passive";
+  }
+  if (/^U\d+/.test(first)) {
+    return "ic";
+  }
+  return "other";
+}
+
 function dedupeBomRows(rows: BomRow[]): BomRow[] {
   const byPart = new Map<string, BomRow>();
   for (const row of rows) {
@@ -78,20 +94,27 @@ export async function parseBomPartRows(bomCsvPath: string): Promise<BomRow[]> {
     return [];
   }
   const headers = parseCsvLine(lines[0]);
+  const designatorIdx = headers.findIndex((h) => h.trim().toLowerCase() === "designator");
   const manufacturerIdx = headers.findIndex((h) => h.trim().toLowerCase() === "manufacturer");
   const partNumberIdx = headers.findIndex((h) => h.trim().toLowerCase() === "part number");
-  if (manufacturerIdx < 0 || partNumberIdx < 0) {
+  if (manufacturerIdx < 0 || partNumberIdx < 0 || designatorIdx < 0) {
     return [];
   }
   const rows: BomRow[] = [];
   for (let i = 1; i < lines.length; i += 1) {
     const cells = parseCsvLine(lines[i]);
+    const refdes = (cells[designatorIdx] ?? "").trim();
     const manufacturer = (cells[manufacturerIdx] ?? "").trim();
     const partNumber = (cells[partNumberIdx] ?? "").trim();
-    if (!partNumber) {
+    if (!partNumber || !refdes) {
       continue;
     }
-    rows.push({ manufacturer, partNumber });
+    rows.push({
+      manufacturer,
+      partNumber,
+      refdes,
+      category: classifyPart(refdes),
+    });
   }
   return rows;
 }

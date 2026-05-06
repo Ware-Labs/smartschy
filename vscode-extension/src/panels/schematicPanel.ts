@@ -75,8 +75,8 @@ export class SchematicPanel {
         <button id="openPdfBtn">Open PDF</button>
         <span id="viewerStatus" style="font-size:12px;color:var(--vscode-descriptionForeground);"></span>
       </div>
-      <div style="overflow:auto;height:calc(100% - 44px);display:flex;justify-content:center;align-items:flex-start;padding:8px;">
-        <img id="pageImage" alt="Schematic page" style="max-width:100%;height:auto;border:1px solid var(--vscode-panel-border);" />
+      <div style="height:calc(100% - 44px);display:flex;justify-content:center;align-items:center;padding:8px;box-sizing:border-box;">
+        <img id="pageImage" alt="Schematic page" style="width:100%;height:100%;object-fit:contain;border:1px solid var(--vscode-panel-border);background:var(--vscode-editor-background);" />
       </div>
       `
       : `<div style="padding:16px;">Add a schematic in the Resources panel, then reopen this viewer.</div>`;
