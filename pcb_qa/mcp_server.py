@@ -169,6 +169,20 @@ def build_mcp_server() -> Any:
         )
 
     @mcp.tool()
+    def rank_schematic_images_for_obligations(
+        project_root: str,
+        obligations: dict,
+        evidence_so_far: list[dict] | None = None,
+        max_results: int = 4,
+    ) -> dict:
+        return evidence_tools.rank_schematic_images_for_obligations(
+            _to_path(project_root),
+            obligations=obligations,
+            evidence_so_far=evidence_so_far or [],
+            max_results=max_results,
+        )
+
+    @mcp.tool()
     def build_evidence_packet(
         project_root: str,
         question: str,
@@ -179,6 +193,11 @@ def build_mcp_server() -> Any:
         recommended_answer_constraints: list[str] | None = None,
         limits: dict | None = None,
         stop_reason: str | None = None,
+        obligations: dict | None = None,
+        coverage_report: dict | None = None,
+        missing_obligations: dict | None = None,
+        tool_decision_trace: list[dict] | None = None,
+        image_selection_trace: list[dict] | None = None,
     ) -> dict:
         return build_packet_func(
             project_root=_to_path(project_root),
@@ -190,6 +209,11 @@ def build_mcp_server() -> Any:
             recommended_answer_constraints=recommended_answer_constraints,
             limits=limits,
             stop_reason=stop_reason,
+            obligations=obligations,
+            coverage_report=coverage_report,
+            missing_obligations=missing_obligations,
+            tool_decision_trace=tool_decision_trace,
+            image_selection_trace=image_selection_trace,
         )
 
     @mcp.tool()

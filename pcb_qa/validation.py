@@ -130,14 +130,28 @@ def _run_suite(project_root: Path, questions: list[dict]) -> dict:
                 "question": row["question"],
                 "expected_focus": row["expected_focus"],
                 "heuristic_pass": _contains_focus(summary, packet, row["expected_focus"]),
+                "coverage_satisfied": bool((packet.get("coverage_report") or {}).get("coverage_satisfied", False)),
+                "missing_obligations": (packet.get("missing_obligations") or {}),
+                "schematic_image_count": int(summary.get("schematic_image_count", 0)),
                 "summary": summary,
             }
         )
     passed = sum(1 for row in runs if row["heuristic_pass"])
+    coverage_passed = sum(1 for row in runs if row["coverage_satisfied"])
+    false_uncertainty = sum(
+        1
+        for row in runs
+        if row["coverage_satisfied"] and "obligation_coverage_incomplete" in row["summary"].get("open_uncertainties", [])
+    )
+    image_attach_nonzero = sum(1 for row in runs if row["schematic_image_count"] > 0)
     return {
         "total": len(runs),
         "passed_heuristic": passed,
         "failed_heuristic": len(runs) - passed,
+        "coverage_passed": coverage_passed,
+        "coverage_failed": len(runs) - coverage_passed,
+        "false_uncertainty_rate": round(false_uncertainty / len(runs), 4) if runs else 0.0,
+        "image_attachment_precision_proxy": round(image_attach_nonzero / len(runs), 4) if runs else 0.0,
         "runs": runs,
     }
 
@@ -146,15 +160,17 @@ def run_validation(project_root: Path) -> dict:
     board = _run_suite(project_root, BOARD_SPECIFIC_QUESTIONS)
     synthetic = _run_suite(project_root, SYNTHETIC_GENERALIZATION_QUESTIONS)
     report = {
-        "mode": "single_mode",
+        "mode": "llm_driven_single_mode",
         "board_specific": board,
         "synthetic_generalization": synthetic,
         "totals": {
             "total": board["total"] + synthetic["total"],
             "passed_heuristic": board["passed_heuristic"] + synthetic["passed_heuristic"],
             "failed_heuristic": board["failed_heuristic"] + synthetic["failed_heuristic"],
+            "coverage_passed": board["coverage_passed"] + synthetic["coverage_passed"],
+            "coverage_failed": board["coverage_failed"] + synthetic["coverage_failed"],
         },
-        "note": "Heuristic pass only; final adjudication should be manual with citations.",
+        "note": "Heuristic + coverage proxy only; final adjudication should be manual with citations.",
     }
     output_dir = project_root / "derived" / "validation"
     output_dir.mkdir(parents=True, exist_ok=True)

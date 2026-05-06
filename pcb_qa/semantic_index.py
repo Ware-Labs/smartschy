@@ -35,6 +35,14 @@ INTERFACE_HINTS = {
     "usb": ("USB", "VBUS", "D+", "D-", "J4"),
 }
 
+PROTOCOL_REQUIREMENT_LIBRARY = {
+    "swd_jtag_debug": {
+        "required_nets": ["SWDIO", "SWDCLK", "RESET", "GND"],
+        "power_reference_any_of": ["1V8", "VDD", "VTREF"],
+        "description": "Debug/programming interface should expose data/clock/reset, ground, and target reference voltage.",
+    }
+}
+
 
 def _load_artifacts(project_root: Path) -> dict[str, Any]:
     derived = project_root / "derived"
@@ -382,6 +390,101 @@ def _llm_enrich_semantics(
     return out
 
 
+def _infer_sheet_semantics(pdf_chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_page: dict[int, dict[str, Any]] = {}
+    for row in pdf_chunks:
+        if row.get("source_type") != "schematic":
+            continue
+        page = row.get("page_start")
+        if not isinstance(page, int):
+            continue
+        payload = by_page.setdefault(
+            page,
+            {
+                "page_number": page,
+                "sheet_hints": set(),
+                "tokens": set(),
+                "queryability_tags": set(),
+            },
+        )
+        for heading in row.get("heading_path", []):
+            payload["sheet_hints"].add(str(heading))
+        for token in row.get("tokens", [])[:300]:
+            payload["tokens"].add(str(token).upper())
+    out = []
+    for page in sorted(by_page):
+        payload = by_page[page]
+        tokens = payload["tokens"]
+        if any(tok.startswith("SWD") or tok.startswith("JTAG") for tok in tokens):
+            payload["queryability_tags"].add("debug")
+        if any(tok in {"VBUSIN", "VBAT", "1V8", "2V8_SW", "GND"} for tok in tokens):
+            payload["queryability_tags"].add("power")
+        if any("IMU" in tok or "ICM" in tok for tok in tokens):
+            payload["queryability_tags"].add("sensor")
+        if any(tok.startswith("J") and tok[1:].isdigit() for tok in tokens):
+            payload["queryability_tags"].add("connector")
+        out.append(
+            {
+                "page_number": page,
+                "sheet_hints": sorted(payload["sheet_hints"]),
+                "queryability_tags": sorted(payload["queryability_tags"]),
+                "confidence": "heuristic",
+            }
+        )
+    return out
+
+
+def _infer_entity_sheet_index(nets: list[dict[str, Any]], pdf_chunks: list[dict[str, Any]]) -> dict[str, Any]:
+    # Lightweight lexical index to map entities to likely schematic pages.
+    by_page_text: dict[int, str] = {}
+    for row in pdf_chunks:
+        if row.get("source_type") != "schematic":
+            continue
+        page = row.get("page_start")
+        if not isinstance(page, int):
+            continue
+        by_page_text[page] = (by_page_text.get(page, "") + " " + str(row.get("text", ""))).upper()
+    net_to_pages: dict[str, list[int]] = {}
+    for net in nets:
+        net_name = str(net.get("net_name_canonical", ""))
+        if not net_name:
+            continue
+        pages = [page for page, text in by_page_text.items() if net_name in text]
+        if pages:
+            net_to_pages[net_name] = sorted(set(pages))[:8]
+    return {"net_to_pages": net_to_pages}
+
+
+def _llm_protocol_obligations(
+    llm_model: str,
+    protocol_library: dict[str, Any],
+    sheet_semantics: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key or OpenAI is None:
+        return []
+    prompt = {
+        "task": "Produce generalized protocol evidence obligations from deterministic protocol library and sheet tags.",
+        "constraints": [
+            "Return JSON array only.",
+            "Do not invent protocol names beyond input library unless confidence is low.",
+            "For each row include protocol_id, obligations, confidence, and evidence references.",
+        ],
+        "protocol_library": protocol_library,
+        "sheet_semantics": sheet_semantics[:12],
+    }
+    try:
+        client = OpenAI(api_key=api_key)
+        response = client.responses.create(model=llm_model, input=json.dumps(prompt, ensure_ascii=True))
+        raw = response.output_text.strip()
+        payload = json.loads(raw) if raw else []
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+    except Exception:
+        return []
+    return []
+
+
 def build_semantic_indices(
     project_root: Path,
     llm_enrich: bool = False,
@@ -398,6 +501,8 @@ def build_semantic_indices(
     function_blocks = _infer_function_blocks(nets, refdes_to_part)
     anomalies = _infer_connectivity_anomalies(component_pin_index, nets)
     typed_graph = _build_typed_graph(nets, function_blocks, power_domains, interface_buses)
+    sheet_semantics = _infer_sheet_semantics(pdf_chunks)
+    entity_sheet_index = _infer_entity_sheet_index(nets, pdf_chunks)
 
     kg_dir = project_root / "derived" / "kg"
     qa_dir = project_root / "derived" / "qa"
@@ -409,6 +514,8 @@ def build_semantic_indices(
     write_json(kg_dir / "power_domains.json", {"domains": power_domains})
     write_json(kg_dir / "interface_buses.json", {"buses": interface_buses})
     write_jsonl(qa_dir / "connectivity_anomalies.jsonl", anomalies)
+    write_jsonl(kg_dir / "llm_sheet_semantics.jsonl", sheet_semantics)
+    write_json(kg_dir / "llm_entity_sheet_index.json", entity_sheet_index)
 
     block_semantics: list[dict[str, Any]] = []
     interface_hypotheses: list[dict[str, Any]] = []
@@ -424,9 +531,15 @@ def build_semantic_indices(
         block_semantics = llm_payload["block_semantics"]
         interface_hypotheses = llm_payload["interface_hypotheses"]
         analog_classifications = llm_payload["analog_classifications"]
+    protocol_obligations = _llm_protocol_obligations(
+        llm_model=llm_model,
+        protocol_library=PROTOCOL_REQUIREMENT_LIBRARY,
+        sheet_semantics=sheet_semantics,
+    ) if llm_enrich else []
     write_jsonl(kg_dir / "llm_block_semantics.jsonl", block_semantics)
     write_jsonl(kg_dir / "llm_interface_hypotheses.jsonl", interface_hypotheses)
     write_jsonl(kg_dir / "llm_analog_classification.jsonl", analog_classifications)
+    write_jsonl(kg_dir / "llm_protocol_obligations.jsonl", protocol_obligations)
 
     return {
         "typed_graph_edges": len(typed_graph),
@@ -437,5 +550,7 @@ def build_semantic_indices(
         "llm_block_semantics": len(block_semantics),
         "llm_interface_hypotheses": len(interface_hypotheses),
         "llm_analog_classification": len(analog_classifications),
+        "llm_sheet_semantics": len(sheet_semantics),
+        "llm_protocol_obligations": len(protocol_obligations),
     }
 

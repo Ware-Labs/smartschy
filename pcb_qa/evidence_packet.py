@@ -74,6 +74,11 @@ def build_evidence_packet(
     recommended_answer_constraints: list[str] | None = None,
     limits: dict[str, Any] | None = None,
     stop_reason: str | None = None,
+    obligations: dict[str, Any] | None = None,
+    coverage_report: dict[str, Any] | None = None,
+    missing_obligations: dict[str, Any] | None = None,
+    tool_decision_trace: list[dict[str, Any]] | None = None,
+    image_selection_trace: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized = [_normalize_evidence_row(i + 1, row) for i, row in enumerate(selected_evidence)]
     normalized = _sort_evidence(normalized)
@@ -107,6 +112,11 @@ def build_evidence_packet(
         "functional_hypotheses": [],
         "anomaly_findings": [],
         "evidence_diversity_metrics": {},
+        "obligations": obligations or {},
+        "coverage_report": coverage_report or {},
+        "missing_obligations": missing_obligations or {},
+        "tool_decision_trace": tool_decision_trace or [],
+        "image_selection_trace": image_selection_trace or [],
         "recommended_answer_constraints": recommended_answer_constraints or [],
     }
     return packet

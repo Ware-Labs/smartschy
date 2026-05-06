@@ -1,1 +1,1 @@
-python -m pcb_qa.cli agent-ask --project-root . --question "what's SW3 for?" --answer-with-llm --model gpt-5 --image-detail high
+python -m pcb_qa.cli agent-ask --project-root . --question "why are there solder bridges on the LEDs?" --answer-with-llm --model gpt-5 --image-detail high

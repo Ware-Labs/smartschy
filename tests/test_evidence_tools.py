@@ -72,6 +72,19 @@ class EvidenceToolTests(unittest.TestCase):
         anomalies = evidence_tools.get_connectivity_anomalies(REPO_ROOT)
         self.assertIn("results", anomalies)
 
+    def test_rank_schematic_images_for_obligations(self) -> None:
+        payload = evidence_tools.rank_schematic_images_for_obligations(
+            REPO_ROOT,
+            obligations={
+                "intent": "protocol_debug_validation",
+                "entities_required": {"nets": ["SWDIO", "SWDCLK", "GND", "1V8"]},
+            },
+            evidence_so_far=[],
+            max_results=3,
+        )
+        self.assertIn("selected_pages", payload)
+        self.assertLessEqual(len(payload["selected_pages"]), 3)
+
 
 class McpServerImportTests(unittest.TestCase):
     def test_mcp_server_can_build_when_dependency_present(self) -> None:
@@ -95,12 +108,15 @@ class PromptRenderTests(unittest.TestCase):
             "intent": "pin_validation",
             "evidence_diversity_metrics": {"distinct_nets": 4},
             "critical_findings": ["DSN: U3-5 is floating (unconnected), contradicting expected VDDIO tie."],
+            "coverage_report": {"coverage_satisfied": False},
+            "missing_obligations": {"relations": ["pin_to_net_validation"]},
             "evidence": [],
         }
         prompt = render_prompt_from_evidence_packet(packet)
         self.assertIn("Critical DSN Findings:", prompt)
         self.assertIn("U3-5 is floating", prompt)
         self.assertIn("Question intent:", prompt)
+        self.assertIn("Coverage report:", prompt)
 
 
 if __name__ == "__main__":

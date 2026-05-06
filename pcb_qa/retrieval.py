@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
+from .obligations import classify_intent
 from .utils import canonical_net_name, cosine_similarity, hash_embedding, read_json, read_jsonl, tokenize
 
 
@@ -48,16 +49,7 @@ def _extract_symbol_like(question: str) -> set[str]:
 
 class IntentRouter:
     def classify(self, question: str) -> str:
-        q = question.lower()
-        if any(token in q for token in ("floating", "misconnect", "wrong connection", "short", "disconnect")):
-            return "anomaly_check"
-        if any(token in q for token in ("pin", "vdd", "vddio", "connected correctly", "is connected")):
-            return "pin_validation"
-        if any(token in q for token in ("net", "which pins are on", "trace", "path")):
-            return "net_trace"
-        if any(token in q for token in ("communicate", "interface", "between", "how does")):
-            return "relationship_trace"
-        return "system_function"
+        return classify_intent(question)
 
 
 class QueryParser:
@@ -141,8 +133,6 @@ class SingleModeRetriever:
             # Breadth-first profile for generic questions.
             for row in self.nets:
                 net = row.get("net_name_canonical", "")
-                if net == "GND":
-                    continue
                 if len(seed_nets) >= 14:
                     break
                 if any(h in net for h in ("VBUS", "VBAT", "1V8", "2V8", "SWD", "RESET", "P0.", "P1.", "P2.")):

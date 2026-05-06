@@ -10,6 +10,8 @@ def render_prompt_from_evidence_packet(packet: dict[str, Any]) -> str:
     diversity = packet.get("evidence_diversity_metrics", {}) or {}
     hypotheses = packet.get("functional_hypotheses", []) or []
     anomaly_findings = packet.get("anomaly_findings", []) or []
+    coverage = packet.get("coverage_report", {}) or {}
+    missing_obligations = packet.get("missing_obligations", {}) or {}
     critical_block = ""
     if critical_findings:
         lines = "\n".join(f"- {item}" for item in critical_findings)
@@ -28,10 +30,13 @@ def render_prompt_from_evidence_packet(packet: dict[str, Any]) -> str:
         "Use only the supplied evidence packet. If evidence is incomplete, say so explicitly.\n\n"
         f"Question intent: {intent}\n"
         f"Evidence diversity metrics: {diversity}\n\n"
+        f"Coverage report: {coverage}\n"
+        f"Missing obligations: {missing_obligations}\n\n"
         "Evidence priority order: DSN connectivity > schematic text/image > datasheet text > BOM metadata > inferred heuristics.\n"
         "Never invent values, pins, or nets.\n"
         "If DSN confirms connectivity but pin-function evidence is missing, state that limitation.\n"
         "If any required pin is floating or unresolved in DSN evidence, call it out explicitly.\n\n"
+        "If coverage_satisfied is false, the verdict must explicitly explain missing obligations before any tentative conclusion.\n\n"
         f"{critical_block}"
         f"{hypothesis_block}"
         f"{anomaly_block}"

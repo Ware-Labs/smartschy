@@ -88,12 +88,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     agent_ask_cmd = sub.add_parser(
         "agent-ask",
-        help="Iteratively build evidence packet and strict prompt via deterministic tools.",
+        help="Iteratively build evidence packet via LLM-planned tool calls with coverage gating.",
     )
     agent_ask_cmd.add_argument("--project-root", type=Path, required=True)
     agent_ask_cmd.add_argument("--question", type=str, required=True)
-    agent_ask_cmd.add_argument("--max-iterations", type=int, default=6)
-    agent_ask_cmd.add_argument("--max-tool-calls", type=int, default=40)
+    agent_ask_cmd.add_argument("--max-iterations", type=int, default=18)
+    agent_ask_cmd.add_argument("--max-tool-calls", type=int, default=120)
     agent_ask_cmd.add_argument("--max-chunks", type=int, default=16)
     agent_ask_cmd.add_argument("--max-schematic-images", type=int, default=4)
     agent_ask_cmd.add_argument("--max-total-evidence-items", type=int, default=64)

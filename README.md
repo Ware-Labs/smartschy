@@ -7,7 +7,7 @@ questions using:
 - BOM identity mapping,
 - section-aware PDF chunking for schematic/datasheets,
 - typed knowledge artifacts (blocks/domains/buses/anomalies),
-- single-mode intent-routed retrieval with evidence quality gates.
+- LLM-driven iterative evidence orchestration with obligation coverage gates.
 
 ## Quick start
 
@@ -18,7 +18,7 @@ questions using:
    - `python -m pcb_qa.cli ingest --project-root .`
    - Optional semantic LLM enrichment during ingest:
    - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5-mini`
-4. Agent ask (single-mode deterministic retrieval + trace):
+4. Agent ask (LLM-driven planner + coverage verifier + selective schematic image policy):
    - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
    - Shows live progress lines on stderr while running.
    - Supports `--quiet` to suppress progress output.
@@ -31,6 +31,11 @@ questions using:
 
 Outputs are written to `derived/`.
 
-Single-mode stop reasons include:
-- `single_mode_complete`
-- `insufficient_breadth`
+Key QA outputs now include:
+- `derived/qa/obligations.json`
+- `derived/qa/coverage_report.json`
+- `derived/qa/agent_evidence_packet.json` (with `missing_obligations`, `tool_decision_trace`, and `image_selection_trace`)
+
+Stop reasons include:
+- `coverage_satisfied_finalize`
+- `coverage_incomplete`

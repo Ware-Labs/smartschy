@@ -150,6 +150,18 @@ class DerivedArtifactStore:
     def llm_analog_classification(self) -> list[dict[str, Any]]:
         return self._load_jsonl("derived/kg/llm_analog_classification.jsonl", "llm_analog_classification")
 
+    @property
+    def llm_protocol_obligations(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/kg/llm_protocol_obligations.jsonl", "llm_protocol_obligations")
+
+    @property
+    def llm_sheet_semantics(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/kg/llm_sheet_semantics.jsonl", "llm_sheet_semantics")
+
+    @property
+    def llm_entity_sheet_index(self) -> dict[str, Any]:
+        return self._load_json("derived/kg/llm_entity_sheet_index.json", "llm_entity_sheet_index")
+
 
 def list_project_summary(project_root: Path | str) -> dict[str, Any]:
     store = DerivedArtifactStore(project_root)
@@ -165,6 +177,8 @@ def list_project_summary(project_root: Path | str) -> dict[str, Any]:
         "power_domains": len(store.power_domains),
         "interface_buses": len(store.interface_buses),
         "connectivity_anomalies": len(store.connectivity_anomalies),
+        "llm_protocol_obligations": len(store.llm_protocol_obligations),
+        "llm_sheet_semantics": len(store.llm_sheet_semantics),
     }
     artifacts = {
         "ingest_summary": str(store.project_root / "derived" / "ingest_summary.json"),
@@ -187,6 +201,9 @@ def list_project_summary(project_root: Path | str) -> dict[str, Any]:
             "function_blocks": str(store.project_root / "derived" / "kg" / "function_blocks.json"),
             "power_domains": str(store.project_root / "derived" / "kg" / "power_domains.json"),
             "interface_buses": str(store.project_root / "derived" / "kg" / "interface_buses.json"),
+            "llm_protocol_obligations": str(store.project_root / "derived" / "kg" / "llm_protocol_obligations.jsonl"),
+            "llm_sheet_semantics": str(store.project_root / "derived" / "kg" / "llm_sheet_semantics.jsonl"),
+            "llm_entity_sheet_index": str(store.project_root / "derived" / "kg" / "llm_entity_sheet_index.json"),
         },
         "qa": {
             "connectivity_anomalies": str(store.project_root / "derived" / "qa" / "connectivity_anomalies.jsonl"),
@@ -721,6 +738,127 @@ def get_connectivity_anomalies(
     }
 
 
+def rank_schematic_images_for_obligations(
+    project_root: Path | str,
+    obligations: dict[str, Any],
+    evidence_so_far: list[dict[str, Any]] | None = None,
+    max_results: int = 4,
+) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    evidence_so_far = evidence_so_far or []
+    required_nets = [str(item).upper() for item in obligations.get("entities_required", {}).get("nets", [])]
+    required_components = [str(item).upper() for item in obligations.get("entities_required", {}).get("components", [])]
+
+    # Expand queryable references from accumulated evidence so page selection does not depend
+    # only on obligations or optional LLM sheet artifacts.
+    referenced_terms: set[str] = set(required_nets) | set(required_components)
+    for row in evidence_so_far:
+        if not isinstance(row, dict):
+            continue
+        data = row.get("data", {})
+        if not isinstance(data, dict):
+            continue
+        refdes = str(data.get("refdes", "")).upper()
+        if refdes:
+            referenced_terms.add(refdes)
+        net_name = str(data.get("net_name_canonical", "")).upper()
+        if net_name:
+            referenced_terms.add(net_name)
+        for token in data.get("component_refs", []):
+            value = str(token).upper()
+            if value:
+                referenced_terms.add(value)
+        for token in data.get("nets", []):
+            value = str(token).upper()
+            if value:
+                referenced_terms.add(value)
+        for value in data.get("connected_pin_nets", {}).values():
+            token = str(value).upper()
+            if token:
+                referenced_terms.add(token)
+        members = data.get("members", {}).get("component_to_pins", {})
+        if isinstance(members, dict):
+            for comp in members.keys():
+                token = str(comp).upper()
+                if token:
+                    referenced_terms.add(token)
+
+    sheet_semantics = {int(row.get("page_number")): row for row in store.llm_sheet_semantics if isinstance(row.get("page_number"), int)}
+    page_scores: dict[int, float] = {}
+    page_reasons: dict[int, list[str]] = {}
+    images = store.schematic_image_manifest.get("images", [])
+    net_to_pages = store.llm_entity_sheet_index.get("net_to_pages", {})
+    for net in required_nets:
+        for page in net_to_pages.get(net, []):
+            page_int = int(page)
+            page_scores[page_int] = page_scores.get(page_int, 0.0) + 2.5
+            page_reasons.setdefault(page_int, []).append(f"net_match:{net}")
+
+    # Direct chunk matching fallback/expansion: include any schematic page that mentions
+    # referenced nets/components/refdes.
+    for chunk in store.pdf_chunks:
+        if chunk.get("source_type") != "schematic":
+            continue
+        page = chunk.get("page_start")
+        if not isinstance(page, int):
+            continue
+        text_blob = str(chunk.get("text", "")).upper()
+        if not text_blob:
+            continue
+        matches = [term for term in referenced_terms if term and term in text_blob]
+        if not matches:
+            continue
+        page_scores[page] = page_scores.get(page, 0.0) + (1.2 + 0.2 * min(len(matches), 6))
+        reasons = page_reasons.setdefault(page, [])
+        for term in matches[:6]:
+            reasons.append(f"ref_match:{term}")
+
+    intent = str(obligations.get("intent", ""))
+    for image in images:
+        page = image.get("page_number")
+        if not isinstance(page, int):
+            continue
+        sem = sheet_semantics.get(page, {})
+        tags = [str(tag).lower() for tag in sem.get("queryability_tags", [])]
+        if intent == "protocol_debug_validation" and "debug" in tags:
+            page_scores[page] = page_scores.get(page, 0.0) + 1.5
+            page_reasons.setdefault(page, []).append("sheet_tag:debug")
+        if intent in {"system_function", "relationship_trace"} and "power" in tags:
+            page_scores[page] = page_scores.get(page, 0.0) + 0.8
+            page_reasons.setdefault(page, []).append("sheet_tag:power")
+    # Prefer pages not already represented in current evidence.
+    seen_pages = {
+        int(item.get("data", {}).get("page_start"))
+        for item in evidence_so_far
+        if isinstance(item, dict) and isinstance(item.get("data", {}).get("page_start"), int)
+    }
+    rows = []
+    for page, score in page_scores.items():
+        adjusted = score - (0.4 if page in seen_pages else 0.0)
+        rows.append(
+            {
+                "page_number": page,
+                "score": round(adjusted, 4),
+                "reasons": page_reasons.get(page, []),
+            }
+        )
+    rows.sort(key=lambda row: row["score"], reverse=True)
+    selected = rows[: max(0, max_results)]
+    return {
+        "intent": intent,
+        "required_nets": required_nets,
+        "required_components": required_components,
+        "referenced_terms": sorted(referenced_terms),
+        "selected_pages": selected,
+        "source_artifacts": [
+            "derived/kg/llm_sheet_semantics.jsonl",
+            "derived/kg/llm_entity_sheet_index.json",
+            "derived/pdf/pdf_chunks.jsonl",
+            "derived/pdf/schematic_page_images.json",
+        ],
+    }
+
+
 def build_evidence_packet(
     project_root: Path | str,
     question: str,
@@ -732,6 +870,11 @@ def build_evidence_packet(
     recommended_answer_constraints: list[str] | None = None,
     limits: dict[str, Any] | None = None,
     stop_reason: str | None = None,
+    obligations: dict[str, Any] | None = None,
+    coverage_report: dict[str, Any] | None = None,
+    missing_obligations: dict[str, Any] | None = None,
+    tool_decision_trace: list[dict[str, Any]] | None = None,
+    image_selection_trace: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     from .evidence_packet import build_evidence_packet as _build
 
@@ -746,6 +889,11 @@ def build_evidence_packet(
         recommended_answer_constraints=recommended_answer_constraints,
         limits=limits,
         stop_reason=stop_reason,
+        obligations=obligations,
+        coverage_report=coverage_report,
+        missing_obligations=missing_obligations,
+        tool_decision_trace=tool_decision_trace,
+        image_selection_trace=image_selection_trace,
     )
 
 

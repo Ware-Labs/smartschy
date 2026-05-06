@@ -29,7 +29,7 @@ class AgentAskIntegrationTests(unittest.TestCase):
             limits=AgentLimits(max_chunks=8, max_total_evidence_items=24),
         )
         self.assertGreater(summary["evidence_item_count"], 0)
-        self.assertIn(summary["stop_reason"], {"single_mode_complete", "insufficient_breadth"})
+        self.assertIn(summary["stop_reason"], {"coverage_satisfied_finalize", "coverage_incomplete"})
         packet_path = Path(summary["evidence_packet_path"])
         prompt_path = Path(summary["prompt_path"])
         self.assertTrue(packet_path.exists())
@@ -39,10 +39,14 @@ class AgentAskIntegrationTests(unittest.TestCase):
         self.assertIn("evidence_diversity_metrics", packet)
         self.assertIn("intent", packet)
         self.assertIn("critical_findings", packet)
+        self.assertIn("obligations", packet)
+        self.assertIn("coverage_report", packet)
+        self.assertIn("missing_obligations", packet)
         self.assertTrue(any(item.get("source_priority") == "DSN" for item in packet.get("evidence", [])))
 
         prompt = prompt_path.read_text(encoding="utf-8")
         self.assertIn("Question intent:", prompt)
+        self.assertIn("Coverage report:", prompt)
         self.assertIn("Evidence diversity metrics:", prompt)
         self.assertIn("Citations:", prompt)
 
@@ -68,7 +72,7 @@ class AgentAskIntegrationTests(unittest.TestCase):
             progress_callback=progress_events.append,
         )
         self.assertGreater(len(progress_events), 0)
-        self.assertTrue(any("Starting single-mode agent" in msg for msg in progress_events))
+        self.assertTrue(any("Starting LLM-driven evidence agent" in msg for msg in progress_events))
         self.assertTrue(any("Finished in" in msg for msg in progress_events))
 
 
