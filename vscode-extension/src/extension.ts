@@ -3,7 +3,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { SchematicPanel } from "./panels/schematicPanel";
 import { PythonRunner, RunningCommand } from "./python/pythonRunner";
-import { mapDatasheetsFromBom } from "./state/bomDatasheetMapper";
+import { mapDatasheetsFromBom, parseBomPartRows } from "./state/bomDatasheetMapper";
 import { ChatMessage, Conversation, ConversationStore } from "./state/conversationStore";
 import {
   WorkflowResources,
@@ -59,6 +59,43 @@ async function pickSingleFile(filters: { [name: string]: string[] }): Promise<st
     filters,
   });
   return selected?.[0]?.fsPath;
+}
+
+async function promptManualDatasheetMatches(
+  unmatchedParts: Array<{ manufacturer: string; partNumber: string }>,
+  datasheetPaths: string[],
+  resourcesDir: string
+): Promise<Array<{ manufacturer: string; partNumber: string; sourcePath: string; mappedPath: string }>> {
+  const mappings: Array<{ manufacturer: string; partNumber: string; sourcePath: string; mappedPath: string }> = [];
+  for (const part of unmatchedParts) {
+    const picks = datasheetPaths.map((datasheetPath) => ({
+      label: path.basename(datasheetPath),
+      description: datasheetPath,
+      datasheetPath,
+    }));
+    picks.push({
+      label: "Skip for now",
+      description: `Leave ${part.partNumber} unmapped`,
+      datasheetPath: "",
+    });
+    const picked = await vscode.window.showQuickPick(picks, {
+      title: `Map datasheet for ${part.partNumber}`,
+      placeHolder: `${part.manufacturer || "Unknown manufacturer"} | choose a datasheet match`,
+    });
+    if (!picked || !picked.datasheetPath) {
+      continue;
+    }
+    const safePartNumber = part.partNumber.trim().replace(/[\\/:*?"<>|]/g, "_");
+    const mappedPath = path.join(resourcesDir, `${safePartNumber}.pdf`);
+    await fs.copyFile(picked.datasheetPath, mappedPath);
+    mappings.push({
+      manufacturer: part.manufacturer,
+      partNumber: part.partNumber,
+      sourcePath: picked.datasheetPath,
+      mappedPath,
+    });
+  }
+  return mappings;
 }
 
 function appendStatus(chatView: ChatViewProvider, content: string): void {
@@ -162,11 +199,24 @@ export function activate(context: vscode.ExtensionContext): void {
         return;
       }
       const resourcesDir = path.join(workspaceRoot, ".smartschy", "resources");
-      const mappings = await mapDatasheetsFromBom(
+      const mappingResult = await mapDatasheetsFromBom(
         state.resources.bomCsvPath,
         selected.map((item) => item.fsPath),
         resourcesDir
       );
+      let mappings = mappingResult.mappings;
+      if (mappingResult.unmatchedParts.length > 0) {
+        const manualMappings = await promptManualDatasheetMatches(
+          mappingResult.unmatchedParts,
+          selected.map((item) => item.fsPath),
+          resourcesDir
+        );
+        const byPart = new Map<string, (typeof mappings)[number]>();
+        for (const mapping of [...mappings, ...manualMappings]) {
+          byPart.set(mapping.partNumber.toLowerCase(), mapping);
+        }
+        mappings = [...byPart.values()].sort((a, b) => a.partNumber.localeCompare(b.partNumber));
+      }
       const status = mappings.length > 0 ? "DATASHEETS_MAPPED" : "FILES_SELECTED";
       applyState(
         {
@@ -181,7 +231,11 @@ export function activate(context: vscode.ExtensionContext): void {
       if (mappings.length === 0) {
         vscode.window.showWarningMessage("No datasheets matched BOM part numbers.");
       } else {
-        vscode.window.showInformationMessage(`Mapped ${mappings.length} datasheets from BOM part numbers.`);
+        const totalParts = (await parseBomPartRows(state.resources.bomCsvPath)).length;
+        const mappedCount = mappings.length;
+        vscode.window.showInformationMessage(
+          `Mapped ${mappedCount} datasheets. ${Math.max(totalParts - mappedCount, 0)} part numbers remain unmapped.`
+        );
       }
     }),
     vscode.commands.registerCommand("smartschy.runIngest", async () => {

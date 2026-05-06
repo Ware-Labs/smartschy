@@ -7,6 +7,11 @@ interface BomRow {
   partNumber: string;
 }
 
+export interface DatasheetMapResult {
+  mappings: DatasheetMapping[];
+  unmatchedParts: BomRow[];
+}
+
 function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
   let current = "";
@@ -35,6 +40,35 @@ function parseCsvLine(line: string): string[] {
 
 function sanitizePartNumber(partNumber: string): string {
   return partNumber.trim().replace(/[\\/:*?"<>|]/g, "_");
+}
+
+function normalizeToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function dedupeBomRows(rows: BomRow[]): BomRow[] {
+  const byPart = new Map<string, BomRow>();
+  for (const row of rows) {
+    const key = normalizeToken(row.partNumber);
+    if (!key || byPart.has(key)) {
+      continue;
+    }
+    byPart.set(key, row);
+  }
+  return [...byPart.values()];
+}
+
+async function copyDatasheetToPart(
+  sourcePath: string,
+  partNumber: string,
+  resourcesDir: string
+): Promise<string> {
+  const safePartNumber = sanitizePartNumber(partNumber);
+  const mappedPath = path.join(resourcesDir, `${safePartNumber}.pdf`);
+  if (path.resolve(sourcePath) !== path.resolve(mappedPath)) {
+    await fs.copyFile(sourcePath, mappedPath);
+  }
+  return mappedPath;
 }
 
 export async function parseBomPartRows(bomCsvPath: string): Promise<BomRow[]> {
@@ -66,31 +100,37 @@ export async function mapDatasheetsFromBom(
   bomCsvPath: string,
   datasheetPaths: string[],
   resourcesDir: string
-): Promise<DatasheetMapping[]> {
+): Promise<DatasheetMapResult> {
   await fs.mkdir(resourcesDir, { recursive: true });
-  const bomRows = await parseBomPartRows(bomCsvPath);
+  const bomRows = dedupeBomRows(await parseBomPartRows(bomCsvPath));
 
-  const normalizedByStem = new Map<string, string>();
+  const sourceByStem = new Map<string, string>();
+  const normalizedStemToPath = new Map<string, string>();
   for (const fullPath of datasheetPaths) {
-    normalizedByStem.set(path.basename(fullPath, path.extname(fullPath)).toLowerCase(), fullPath);
+    const stem = path.basename(fullPath, path.extname(fullPath));
+    sourceByStem.set(stem.toLowerCase(), fullPath);
+    normalizedStemToPath.set(normalizeToken(stem), fullPath);
   }
 
   const mappings: DatasheetMapping[] = [];
+  const unmatchedParts: BomRow[] = [];
   for (const row of bomRows) {
-    const key = row.partNumber.toLowerCase();
-    const exact = normalizedByStem.get(key);
+    const rawKey = row.partNumber.toLowerCase();
+    const normalizedKey = normalizeToken(row.partNumber);
+    const exact = sourceByStem.get(rawKey) ?? normalizedStemToPath.get(normalizedKey);
     const fuzzy = exact
       ? exact
-      : datasheetPaths.find((p) => path.basename(p, path.extname(p)).toLowerCase().includes(key));
+      : datasheetPaths.find((p) => {
+          const stem = path.basename(p, path.extname(p));
+          const normalizedStem = normalizeToken(stem);
+          return normalizedStem.includes(normalizedKey) || normalizedKey.includes(normalizedStem);
+        });
     const sourcePath = fuzzy ?? "";
     if (!sourcePath) {
+      unmatchedParts.push(row);
       continue;
     }
-    const safePartNumber = sanitizePartNumber(row.partNumber);
-    const mappedPath = path.join(resourcesDir, `${safePartNumber}.pdf`);
-    if (path.resolve(sourcePath) !== path.resolve(mappedPath)) {
-      await fs.copyFile(sourcePath, mappedPath);
-    }
+    const mappedPath = await copyDatasheetToPart(sourcePath, row.partNumber, resourcesDir);
     mappings.push({
       manufacturer: row.manufacturer,
       partNumber: row.partNumber,
@@ -101,8 +141,11 @@ export async function mapDatasheetsFromBom(
 
   const unique = new Map<string, DatasheetMapping>();
   for (const mapping of mappings) {
-    unique.set(mapping.partNumber.toLowerCase(), mapping);
+    unique.set(normalizeToken(mapping.partNumber), mapping);
   }
-  return [...unique.values()].sort((a, b) => a.partNumber.localeCompare(b.partNumber));
+  return {
+    mappings: [...unique.values()].sort((a, b) => a.partNumber.localeCompare(b.partNumber)),
+    unmatchedParts,
+  };
 }
 
