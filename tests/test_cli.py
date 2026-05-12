@@ -161,6 +161,43 @@ class CliBehaviorTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 cli.main()
 
+    def test_agent_ask_auto_mode_can_dispatch_general_pipeline(self) -> None:
+        fake_stdout = io.StringIO()
+        fake_stderr = io.StringIO()
+        fake_route = type(
+            "RouteDecision",
+            (),
+            {"route": "relevant_general", "to_dict": lambda self: {"route": "relevant_general", "confidence": "high"}},
+        )()
+        fake_general = {"mode": "general", "answer_text": "ok"}
+        with (
+            mock.patch.object(
+                sys,
+                "argv",
+                [
+                    "pcb_qa.cli",
+                    "agent-ask",
+                    "--project-root",
+                    ".",
+                    "--question",
+                    "what does this circuit do?",
+                    "--mode",
+                    "auto",
+                ],
+            ),
+            mock.patch("pcb_qa.cli.route_request", return_value=fake_route),
+            mock.patch("pcb_qa.cli.run_general_response", return_value=fake_general) as run_general,
+            mock.patch("pcb_qa.cli.run_evidence_agent") as run_precision,
+            redirect_stdout(fake_stdout),
+            redirect_stderr(fake_stderr),
+        ):
+            rc = cli.main()
+        self.assertEqual(rc, 0)
+        run_general.assert_called_once()
+        run_precision.assert_not_called()
+        payload = json.loads(fake_stdout.getvalue())
+        self.assertEqual(payload.get("mode"), "general")
+
 
 if __name__ == "__main__":
     unittest.main()

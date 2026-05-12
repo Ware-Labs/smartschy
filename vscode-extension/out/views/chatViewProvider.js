@@ -6,6 +6,7 @@ class ChatViewProvider {
         this.extensionUri = extensionUri;
         this.onCommand = onCommand;
         this.messages = [];
+        this.selectedMode = "auto";
         this.state = initialState;
     }
     resolveWebviewView(webviewView) {
@@ -14,7 +15,9 @@ class ChatViewProvider {
         webviewView.webview.html = this.renderHtml(webviewView.webview);
         webviewView.webview.onDidReceiveMessage((msg) => {
             if (msg?.type === "ask" && typeof msg.question === "string") {
-                this.onCommand({ type: "ask", question: msg.question.trim() });
+                const mode = msg.mode === "general" || msg.mode === "precision" ? msg.mode : "auto";
+                this.selectedMode = mode;
+                this.onCommand({ type: "ask", question: msg.question.trim(), mode });
             }
             else if (msg?.type === "jumpToPage" && Number.isFinite(msg.pageNumber)) {
                 this.onCommand({ type: "jumpToPage", pageNumber: Number(msg.pageNumber) });
@@ -48,6 +51,7 @@ class ChatViewProvider {
             workflow: this.state,
             messages: this.messages,
             title: this.currentConversation?.title ?? "New conversation",
+            selectedMode: this.selectedMode,
         });
     }
     renderHtml(webview) {
@@ -66,7 +70,7 @@ class ChatViewProvider {
       .role-user { color: var(--vscode-textLink-foreground); }
       .role-assistant { color: var(--vscode-foreground); }
       .role-status { color: var(--vscode-descriptionForeground); font-style: italic; }
-      #composer { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; }
+      #composer { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; }
       textarea { width: 100%; min-height: 60px; resize: vertical; }
       button { cursor: pointer; }
     </style>
@@ -77,6 +81,11 @@ class ChatViewProvider {
       <div id="messages"></div>
       <div id="composer">
         <textarea id="question" placeholder="Ask a question about the schematic..."></textarea>
+        <select id="modeSelect" title="Request mode">
+          <option value="auto">Auto</option>
+          <option value="general">General</option>
+          <option value="precision">Precision</option>
+        </select>
         <button id="askBtn">Ask</button>
         <button id="cancelBtn">Cancel</button>
       </div>
@@ -88,13 +97,24 @@ class ChatViewProvider {
       const questionEl = document.getElementById("question");
       const askBtn = document.getElementById("askBtn");
       const cancelBtn = document.getElementById("cancelBtn");
+      const modeSelect = document.getElementById("modeSelect");
       let workflow = { status: "EMPTY" };
       let messages = [];
+      const modeOrder = ["auto", "general", "precision"];
       askBtn.addEventListener("click", () => {
         const question = questionEl.value.trim();
         if (!question) return;
-        vscode.postMessage({ type: "ask", question });
+        const mode = modeSelect ? modeSelect.value : "auto";
+        vscode.postMessage({ type: "ask", question, mode });
         questionEl.value = "";
+      });
+      questionEl.addEventListener("keydown", (event) => {
+        if (event.key === "Tab" && event.shiftKey && modeSelect) {
+          event.preventDefault();
+          const idx = modeOrder.indexOf(modeSelect.value);
+          const next = modeOrder[(idx + 1) % modeOrder.length];
+          modeSelect.value = next;
+        }
       });
       cancelBtn.addEventListener("click", () => vscode.postMessage({ type: "cancelAsk" }));
       window.addEventListener("message", (event) => {
@@ -104,6 +124,12 @@ class ChatViewProvider {
         const enabled = workflow.status === "READY_FOR_CHAT";
         questionEl.disabled = !enabled;
         askBtn.disabled = !enabled;
+        if (modeSelect) {
+          modeSelect.disabled = !enabled;
+          if (event.data.selectedMode) {
+            modeSelect.value = event.data.selectedMode;
+          }
+        }
         statusEl.textContent = "Workflow: " + workflow.status + (workflow.lastError ? " | Error: " + workflow.lastError : "");
         messagesEl.innerHTML = messages.map((msg) => {
           const content = (msg.content || "").replace(/</g, "&lt;");

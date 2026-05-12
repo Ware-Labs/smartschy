@@ -1,0 +1,226 @@
+{
+  "status": "READY_FOR_CHAT",
+  "resources": {
+    "dsnPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\keen3_filet.dsn",
+    "bomCsvPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\Bill of Materials-keen3_filet.csv",
+    "schematicPdfPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\keen3_filet_2026-05-04.pdf",
+    "resourcesDir": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources",
+    "datasheetMappings": [
+      {
+        "manufacturer": "Amphenol ICC (FCI)",
+        "partNumber": "20021521-00010T1LF",
+        "sourcePath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\resources\\20021521-00010T1LF.pdf",
+        "mappedPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\20021521-00010T1LF.pdf"
+      },
+      {
+        "manufacturer": "Ezurio",
+        "partNumber": "453-00001R",
+        "sourcePath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\453-00001R.pdf",
+        "mappedPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\453-00001R.pdf"
+      },
+      {
+        "manufacturer": "Texas Instruments",
+        "partNumber": "BQ25125YFPR",
+        "sourcePath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\BQ25125YFPR.pdf",
+        "mappedPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\BQ25125YFPR.pdf"
+      },
+      {
+        "manufacturer": "Texas Instruments",
+        "partNumber": "DRV2604YZFR",
+        "sourcePath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\DRV2604YZFR.pdf",
+        "mappedPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\DRV2604YZFR.pdf"
+      },
+      {
+        "manufacturer": "TDK Invensense",
+        "partNumber": "ICM-42605",
+        "sourcePath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\ICM-42605.pdf",
+        "mappedPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\ICM-42605.pdf"
+      }
+    ],
+    "unmatchedParts": [
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "GMC04X7R105K6R3NT",
+        "refdes": "C1, C4, C5, C12, C14, C16, C20, C35, C37",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "GMC02X7R104K16NT",
+        "refdes": "C11, C13, C15, C18, C28, C34, C36",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "GMC10X7R106M6R3NT",
+        "refdes": "C17, C21",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Taiyo Yuden",
+        "partNumber": "EMK107BB7225KA-T",
+        "refdes": "C23",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "ams-OSRAM USA INC.",
+        "partNumber": "LY L29K-H1K2-26-0-2-R18-Z",
+        "refdes": "D1, D2, D5, D6",
+        "category": "other"
+      },
+      {
+        "manufacturer": "ams-OSRAM USA INC.",
+        "partNumber": "LG L29K-F2J1-24-0-2-R18-Z",
+        "refdes": "D3",
+        "category": "other"
+      },
+      {
+        "manufacturer": "ams-OSRAM USA INC.",
+        "partNumber": "LS L29K-G1J2-1-0-2-R18-Z",
+        "refdes": "D4",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Murata",
+        "partNumber": "BLM03AG121SN1D",
+        "refdes": "FB1",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Hirose Electric Co Ltd",
+        "partNumber": "BM28B0.6-30DS/2-0.35V(51)",
+        "refdes": "J1",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Hirose Electric Co Ltd",
+        "partNumber": "BM28B0.6-6DP/2-0.35V(51)",
+        "refdes": "J2",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Hirose Electric Co Ltd",
+        "partNumber": "BM28B0.6-6DS/2-0.35V(51)",
+        "refdes": "J3",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Amphenol ICC (Commercial Products)",
+        "partNumber": "12402012E212A",
+        "refdes": "J4",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Samtec Inc.",
+        "partNumber": "TSM-106-01-L-SH-P-TR",
+        "refdes": "J5",
+        "category": "other"
+      },
+      {
+        "manufacturer": "TDK Corporation",
+        "partNumber": "MLZ1608A2R2WT000",
+        "refdes": "L5",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F1004CT",
+        "refdes": "R1, R10, R12, R14, R15, R19",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F5101CT",
+        "refdes": "R2, R3",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F4990CT",
+        "refdes": "R4",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F4991CT",
+        "refdes": "R5",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F4021CT",
+        "refdes": "R6",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F1601CT",
+        "refdes": "R7",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F1001CT",
+        "refdes": "R8",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "YAGEO",
+        "partNumber": "RT0603BRC07500RL",
+        "refdes": "R9",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "Cal-Chip Electronics, Inc.",
+        "refdes": "R11, R13, R16",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Cal-Chip Electronics, Inc.",
+        "partNumber": "RM06F1000CT",
+        "refdes": "R17, R18",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Samsung Electro-Mechanics",
+        "partNumber": "RCS1608F103CS",
+        "refdes": "R20, R21, R22, R23, R25, R26, R27",
+        "category": "passive"
+      },
+      {
+        "manufacturer": "Nidec Components Corporation",
+        "partNumber": "CUS-12TB",
+        "refdes": "SW1, SW2",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Panasonic Electronic Components",
+        "partNumber": "EVP-AA402W",
+        "refdes": "SW3, SW4",
+        "category": "other"
+      },
+      {
+        "manufacturer": "Texas Instruments",
+        "partNumber": "TPS22916BYFPR",
+        "refdes": "U2",
+        "category": "ic"
+      },
+      {
+        "manufacturer": "Macronix",
+        "partNumber": "MX25R6435FZAIL0",
+        "refdes": "U5",
+        "category": "ic"
+      },
+      {
+        "manufacturer": "TXC Corporation",
+        "partNumber": "9HT11-32.768KDZC-T",
+        "refdes": "X1",
+        "category": "other"
+      }
+    ]
+  },
+  "ingestSummaryPath": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\derived\\ingest_summary.json",
+  "lastIngestSignature": "c:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\20021521-00010T1LF.pdf|119068|1778337512691\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\453-00001R.pdf|3536136|1778337512713\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\BQ25125YFPR.pdf|2855198|1778337512742\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\DRV2604YZFR.pdf|2230899|1778337512752\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\.smartschy\\resources\\ICM-42605.pdf|1725806|1778337512725\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\Bill of Materials-keen3_filet.csv|6849|1778337512678\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\keen3_filet_2026-05-04.pdf|2135883|1778337512690\nc:\\Users\\john\\Documents\\GitHub\\ware\\smartschy\\keen3_filet\\keen3_filet.dsn|319931|1778337512681",
+  "lastIngestAt": "2026-05-12T01:44:26.636Z"
+}

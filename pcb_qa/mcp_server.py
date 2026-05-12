@@ -157,6 +157,28 @@ def build_mcp_server() -> Any:
         return evidence_tools.get_interface_buses(_to_path(project_root))
 
     @mcp.tool()
+    def get_circuit_summary(project_root: str) -> dict:
+        return evidence_tools.get_circuit_summary(_to_path(project_root))
+
+    @mcp.tool()
+    def get_component_datasheet_facts(project_root: str, refdes: str) -> dict:
+        return evidence_tools.get_component_datasheet_facts(_to_path(project_root), refdes=refdes)
+
+    @mcp.tool()
+    def search_pin_functions(
+        project_root: str,
+        query: str,
+        refdes: str | None = None,
+        max_results: int = 20,
+    ) -> dict:
+        return evidence_tools.search_pin_functions(
+            _to_path(project_root),
+            query=query,
+            refdes=refdes,
+            max_results=max_results,
+        )
+
+    @mcp.tool()
     def get_connectivity_anomalies(
         project_root: str,
         severity: str | None = None,

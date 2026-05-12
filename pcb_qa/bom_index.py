@@ -57,9 +57,26 @@ def build_bom_indices(bom_csv_path: Path, resources_dir: Path, output_dir: Path)
 
     write_jsonl(output_dir / "component_index.jsonl", component_rows)
     write_json(output_dir / "refdes_to_part.json", refdes_to_part)
+    _write_bom_markdown(component_rows, output_dir / "bom_overview.md")
 
     return {
         "component_rows": len(component_rows),
         "refdes_count": len(refdes_to_part),
     }
+
+
+def _write_bom_markdown(component_rows: list[dict], output_path: Path) -> None:
+    lines = [
+        "# Bill of Materials Overview",
+        "",
+        "| Designators | Quantity | Value | Manufacturer | Part Number | Footprint |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ]
+    for row in component_rows:
+        designators = ", ".join(row.get("designators", []))
+        lines.append(
+            f"| {designators} | {row.get('quantity', '')} | {row.get('value', '')} | "
+            f"{row.get('manufacturer', '')} | {row.get('part_number', '')} | {row.get('footprint', '')} |"
+        )
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

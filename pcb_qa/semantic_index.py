@@ -540,6 +540,13 @@ def build_semantic_indices(
     write_jsonl(kg_dir / "llm_interface_hypotheses.jsonl", interface_hypotheses)
     write_jsonl(kg_dir / "llm_analog_classification.jsonl", analog_classifications)
     write_jsonl(kg_dir / "llm_protocol_obligations.jsonl", protocol_obligations)
+    circuit_summary_path = kg_dir / "circuit_summary.md"
+    _write_circuit_summary_markdown(
+        output_path=circuit_summary_path,
+        function_blocks=function_blocks,
+        power_domains=power_domains,
+        interface_buses=interface_buses,
+    )
 
     return {
         "typed_graph_edges": len(typed_graph),
@@ -553,4 +560,44 @@ def build_semantic_indices(
         "llm_sheet_semantics": len(sheet_semantics),
         "llm_protocol_obligations": len(protocol_obligations),
     }
+
+
+def _write_circuit_summary_markdown(
+    *,
+    output_path: Path,
+    function_blocks: list[dict[str, Any]],
+    power_domains: list[dict[str, Any]],
+    interface_buses: list[dict[str, Any]],
+) -> None:
+    lines = [
+        "# Circuit Summary",
+        "",
+        "## Functional Blocks",
+        "",
+    ]
+    if function_blocks:
+        for block in function_blocks:
+            lines.append(f"- **{block.get('label', block.get('block_id', 'block'))}**")
+            refs = ", ".join(block.get("component_refs", []))
+            nets = ", ".join(block.get("nets", []))
+            lines.append(f"  - Components: {refs or 'none'}")
+            lines.append(f"  - Nets: {nets or 'none'}")
+    else:
+        lines.append("- No functional blocks detected.")
+    lines.extend(["", "## Power Domains", ""])
+    if power_domains:
+        for domain in power_domains:
+            lines.append(
+                f"- `{domain.get('net_name', '')}` ({domain.get('category', 'unknown')}, pins={domain.get('pin_count', 0)})"
+            )
+    else:
+        lines.append("- No power domains detected.")
+    lines.extend(["", "## Interface Buses", ""])
+    if interface_buses:
+        for bus in interface_buses:
+            nets = ", ".join(bus.get("nets", []))
+            lines.append(f"- `{bus.get('bus_type', '')}`: {nets or 'none'}")
+    else:
+        lines.append("- No interface buses detected.")
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

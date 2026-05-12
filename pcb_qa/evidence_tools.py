@@ -162,6 +162,21 @@ class DerivedArtifactStore:
     def llm_entity_sheet_index(self) -> dict[str, Any]:
         return self._load_json("derived/kg/llm_entity_sheet_index.json", "llm_entity_sheet_index")
 
+    @property
+    def circuit_summary_markdown(self) -> str:
+        if "circuit_summary_markdown" not in self._cache:
+            path = self.project_root / "derived" / "kg" / "circuit_summary.md"
+            self._cache["circuit_summary_markdown"] = path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        return self._cache["circuit_summary_markdown"]
+
+    @property
+    def component_facts(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/datasheets/component_facts.jsonl", "component_facts")
+
+    @property
+    def component_pin_functions(self) -> list[dict[str, Any]]:
+        return self._load_jsonl("derived/datasheets/component_pin_functions.jsonl", "component_pin_functions")
+
 
 def list_project_summary(project_root: Path | str) -> dict[str, Any]:
     store = DerivedArtifactStore(project_root)
@@ -179,6 +194,8 @@ def list_project_summary(project_root: Path | str) -> dict[str, Any]:
         "connectivity_anomalies": len(store.connectivity_anomalies),
         "llm_protocol_obligations": len(store.llm_protocol_obligations),
         "llm_sheet_semantics": len(store.llm_sheet_semantics),
+        "component_facts": len(store.component_facts),
+        "component_pin_functions": len(store.component_pin_functions),
     }
     artifacts = {
         "ingest_summary": str(store.project_root / "derived" / "ingest_summary.json"),
@@ -204,6 +221,10 @@ def list_project_summary(project_root: Path | str) -> dict[str, Any]:
             "llm_protocol_obligations": str(store.project_root / "derived" / "kg" / "llm_protocol_obligations.jsonl"),
             "llm_sheet_semantics": str(store.project_root / "derived" / "kg" / "llm_sheet_semantics.jsonl"),
             "llm_entity_sheet_index": str(store.project_root / "derived" / "kg" / "llm_entity_sheet_index.json"),
+        },
+        "datasheets": {
+            "component_facts": str(store.project_root / "derived" / "datasheets" / "component_facts.jsonl"),
+            "component_pin_functions": str(store.project_root / "derived" / "datasheets" / "component_pin_functions.jsonl"),
         },
         "qa": {
             "connectivity_anomalies": str(store.project_root / "derived" / "qa" / "connectivity_anomalies.jsonl"),
@@ -716,6 +737,71 @@ def get_interface_buses(project_root: Path | str) -> dict[str, Any]:
             "derived/kg/interface_buses.json",
             "derived/kg/llm_interface_hypotheses.jsonl",
         ],
+    }
+
+
+def get_circuit_summary(project_root: Path | str) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    return {
+        "summary_markdown": store.circuit_summary_markdown,
+        "source_artifact": "derived/kg/circuit_summary.md",
+    }
+
+
+def get_component_datasheet_facts(project_root: Path | str, refdes: str) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    key = refdes.upper()
+    row = next((item for item in store.component_facts if str(item.get("refdes", "")).upper() == key), None)
+    if row is None:
+        raise KeyError(f"No datasheet facts for component: {key}")
+    pins = [item for item in store.component_pin_functions if str(item.get("refdes", "")).upper() == key]
+    return {
+        "refdes": key,
+        "facts": row,
+        "pin_functions": pins,
+        "source_artifacts": [
+            "derived/datasheets/component_facts.jsonl",
+            "derived/datasheets/component_pin_functions.jsonl",
+        ],
+    }
+
+
+def search_pin_functions(
+    project_root: Path | str,
+    query: str,
+    refdes: str | None = None,
+    max_results: int = 20,
+) -> dict[str, Any]:
+    store = DerivedArtifactStore(project_root)
+    needle = query.strip().lower()
+    rows = store.component_pin_functions
+    if refdes:
+        token = refdes.upper().strip()
+        rows = [row for row in rows if str(row.get("refdes", "")).upper() == token]
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for row in rows:
+        blob = " ".join(
+            [
+                str(row.get("pin_name", "")),
+                str(row.get("description", "")),
+                str(row.get("function", "")),
+                str(row.get("raw_row", "")),
+                str(row.get("part_number", "")),
+            ]
+        ).lower()
+        if not needle:
+            score = 0.1
+        elif needle in blob:
+            score = 1.0 + (0.3 if str(row.get("refdes", "")).upper() == (refdes or "").upper() else 0.0)
+        else:
+            continue
+        scored.append((score, row))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return {
+        "query": query,
+        "refdes_filter": refdes.upper() if refdes else None,
+        "results": [row for _, row in scored[: max(0, max_results)]],
+        "source_artifact": "derived/datasheets/component_pin_functions.jsonl",
     }
 
 

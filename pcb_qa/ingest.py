@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .datasheet_facts import DatasheetFactsOptions, extract_component_facts
+from .datasheet_markdown import build_datasheet_markdown
 from .bom_index import build_bom_indices
 from .dsn_index import build_dsn_indices
+from .model_policy import ANSWER_MODEL_DEFAULT
 from .pdf_ingest import build_pdf_chunks
 from .semantic_index import build_semantic_indices
 from .utils import write_json
@@ -46,10 +49,20 @@ def ingest_project_with_inputs(
     dsn_dir = derived_dir / "dsn"
     bom_dir = derived_dir / "bom"
     pdf_dir = derived_dir / "pdf"
+    datasheet_dir = derived_dir / "datasheets"
 
     dsn_stats = build_dsn_indices(dsn_path, dsn_dir)
     bom_stats = build_bom_indices(bom_csv_path, resources_dir, bom_dir)
     pdf_stats = build_pdf_chunks(schematic_pdf, resources_dir, pdf_dir)
+    datasheet_markdown_stats = build_datasheet_markdown(resources_dir, datasheet_dir)
+    datasheet_fact_stats = extract_component_facts(
+        project_root=project_root,
+        options=DatasheetFactsOptions(
+            llm_model=llm_model if llm_enrich else ANSWER_MODEL_DEFAULT,
+            overlap=0.25,
+            early_stop=True,
+        ),
+    )
     semantic_stats = build_semantic_indices(
         project_root=project_root,
         llm_enrich=llm_enrich,
@@ -68,11 +81,16 @@ def ingest_project_with_inputs(
             "dsn_dir": str(dsn_dir),
             "bom_dir": str(bom_dir),
             "pdf_dir": str(pdf_dir),
+            "datasheet_dir": str(datasheet_dir),
+            "bom_markdown": str(bom_dir / "bom_overview.md"),
+            "circuit_summary_markdown": str(derived_dir / "kg" / "circuit_summary.md"),
         },
         "stats": {
             "dsn": dsn_stats,
             "bom": bom_stats,
             "pdf": pdf_stats,
+            "datasheet_markdown": datasheet_markdown_stats,
+            "datasheet_facts": datasheet_fact_stats,
             "semantic": semantic_stats,
         },
         "llm_enrich": llm_enrich,

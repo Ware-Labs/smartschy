@@ -8,7 +8,10 @@ import threading
 import time
 
 from .evidence_agent import AgentLimits, AnswerOptions, run_evidence_agent
+from .general_response import run_general_response
+from .model_policy import ANSWER_MODEL_DEFAULT, GENERAL_MODEL_DEFAULT, PLANNER_MODEL_DEFAULT, ROUTER_MODEL_DEFAULT
 from .mcp_server import main as run_mcp_server
+from .request_router import route_request
 from .ingest import ingest_project, ingest_project_with_inputs
 from .validation import run_validation
 
@@ -102,8 +105,11 @@ def _build_parser() -> argparse.ArgumentParser:
     agent_ask_cmd.add_argument("--max-schematic-images", type=int, default=4)
     agent_ask_cmd.add_argument("--max-total-evidence-items", type=int, default=64)
     agent_ask_cmd.add_argument("--answer-with-llm", action="store_true")
-    agent_ask_cmd.add_argument("--planner-model", type=str, default="gpt-5-mini")
-    agent_ask_cmd.add_argument("--model", type=str, default="gpt-5")
+    agent_ask_cmd.add_argument("--planner-model", type=str, default=PLANNER_MODEL_DEFAULT)
+    agent_ask_cmd.add_argument("--router-model", type=str, default=ROUTER_MODEL_DEFAULT)
+    agent_ask_cmd.add_argument("--general-model", type=str, default=GENERAL_MODEL_DEFAULT)
+    agent_ask_cmd.add_argument("--model", type=str, default=ANSWER_MODEL_DEFAULT)
+    agent_ask_cmd.add_argument("--mode", choices=["auto", "general", "precision"], default="precision")
     agent_ask_cmd.add_argument("--image-detail", choices=["auto", "low", "high"], default="auto")
     agent_ask_cmd.add_argument("--quiet", action="store_true", help="Suppress progress output on stderr.")
 
@@ -149,30 +155,48 @@ def main() -> int:
     elif args.command == "validate":
         payload = run_validation(args.project_root)
     elif args.command == "agent-ask":
-        reporter = _AgentAskProgressReporter(quiet=args.quiet)
-        limits = AgentLimits(
-            max_iterations=args.max_iterations,
-            max_tool_calls=args.max_tool_calls,
-            max_chunks=args.max_chunks,
-            max_schematic_images=args.max_schematic_images,
-            max_total_evidence_items=args.max_total_evidence_items,
+        forced_mode = None if args.mode == "auto" else args.mode
+        route = route_request(
+            project_root=args.project_root,
+            question=args.question,
+            forced_mode=forced_mode,
+            model=str(args.router_model),
         )
-        try:
-            payload = run_evidence_agent(
+        if route.route == "precision":
+            reporter = _AgentAskProgressReporter(quiet=args.quiet)
+            limits = AgentLimits(
+                max_iterations=args.max_iterations,
+                max_tool_calls=args.max_tool_calls,
+                max_chunks=args.max_chunks,
+                max_schematic_images=args.max_schematic_images,
+                max_total_evidence_items=args.max_total_evidence_items,
+            )
+            try:
+                payload = run_evidence_agent(
+                    project_root=args.project_root,
+                    question=args.question,
+                    limits=limits,
+                    answer_options=AnswerOptions(
+                        answer_with_llm=args.answer_with_llm,
+                        planner_model=args.planner_model,
+                        model=args.model,
+                        max_schematic_images_for_answer=args.max_schematic_images,
+                        image_detail=args.image_detail,
+                    ),
+                    progress_callback=None if args.quiet else reporter.callback,
+                )
+            finally:
+                reporter.close()
+            payload["route_decision"] = route.to_dict()
+            payload["mode_selected"] = args.mode
+        else:
+            payload = run_general_response(
                 project_root=args.project_root,
                 question=args.question,
-                limits=limits,
-                answer_options=AnswerOptions(
-                    answer_with_llm=args.answer_with_llm,
-                    planner_model=args.planner_model,
-                    model=args.model,
-                    max_schematic_images_for_answer=args.max_schematic_images,
-                    image_detail=args.image_detail,
-                ),
-                progress_callback=None if args.quiet else reporter.callback,
+                route_decision=route,
+                model=str(args.general_model),
             )
-        finally:
-            reporter.close()
+            payload["mode_selected"] = args.mode
     elif args.command == "mcp-server":
         return run_mcp_server()
     else:  # pragma: no cover

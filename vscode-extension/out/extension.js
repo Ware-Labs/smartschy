@@ -249,7 +249,7 @@ function activate(context) {
     const schematicPanel = new schematicPanel_1.SchematicPanel();
     const chatView = new chatViewProvider_1.ChatViewProvider(context.extensionUri, state, (cmd) => {
         if (cmd.type === "ask") {
-            void runAgentAsk(cmd.question);
+            void runAgentAsk(cmd.question, cmd.mode);
         }
         else if (cmd.type === "jumpToPage") {
             schematicPanel.jumpToPage(cmd.pageNumber);
@@ -368,7 +368,7 @@ function activate(context) {
             vscode.window.showInformationMessage("No previous chat question to retry.");
             return;
         }
-        await runAgentAsk(lastQuestion);
+        await runAgentAsk(lastQuestion, "auto");
     }), vscode.commands.registerCommand("smartschy.resetWorkflow", () => {
         runningIngest?.cancel();
         runningAsk?.cancel();
@@ -443,7 +443,7 @@ function activate(context) {
         }, resourcesView, chatView);
         appendStatus(chatView, "Ingest complete. Chat is now enabled.");
     }
-    async function runAgentAsk(question) {
+    async function runAgentAsk(question, mode = "auto") {
         if (runningAsk) {
             vscode.window.showInformationMessage("A chat request is already in progress.");
             return;
@@ -475,6 +475,8 @@ function activate(context) {
             workspaceRoot,
             "--question",
             contextualQuestion,
+            "--mode",
+            mode,
             "--answer-with-llm",
             "--model",
             "gpt-5",
@@ -525,8 +527,17 @@ function activate(context) {
                 assistantContent = "Completed request but could not read the final answer file.";
             }
         }
+        else if (typeof payload.answer_text === "string" && payload.answer_text.trim().length > 0) {
+            assistantContent = payload.answer_text.trim();
+            if (payload.suggested_precision_followup) {
+                assistantContent += `\n\n${payload.suggested_precision_followup}`;
+            }
+        }
         else {
             assistantContent = `Completed with stop reason: ${payload.stop_reason ?? "unknown"}`;
+        }
+        if (payload.route_decision?.route) {
+            appendStatus(chatView, `Route: ${payload.route_decision.route}`);
         }
         appendChat(chatView, "assistant", assistantContent);
         const updatedConversation = withConversationMessage(activeConversation, {

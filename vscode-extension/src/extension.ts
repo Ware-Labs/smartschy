@@ -247,7 +247,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const chatView = new ChatViewProvider(context.extensionUri, state, (cmd) => {
     if (cmd.type === "ask") {
-      void runAgentAsk(cmd.question);
+      void runAgentAsk(cmd.question, cmd.mode);
     } else if (cmd.type === "jumpToPage") {
       schematicPanel.jumpToPage(cmd.pageNumber);
       schematicPanel.show(context.extensionUri, state.resources.schematicPdfPath);
@@ -391,7 +391,7 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showInformationMessage("No previous chat question to retry.");
         return;
       }
-      await runAgentAsk(lastQuestion);
+      await runAgentAsk(lastQuestion, "auto");
     }),
     vscode.commands.registerCommand("smartschy.resetWorkflow", () => {
       runningIngest?.cancel();
@@ -479,7 +479,7 @@ export function activate(context: vscode.ExtensionContext): void {
     appendStatus(chatView, "Ingest complete. Chat is now enabled.");
   }
 
-  async function runAgentAsk(question: string): Promise<void> {
+  async function runAgentAsk(question: string, mode: "auto" | "general" | "precision" = "auto"): Promise<void> {
     if (runningAsk) {
       vscode.window.showInformationMessage("A chat request is already in progress.");
       return;
@@ -514,6 +514,8 @@ export function activate(context: vscode.ExtensionContext): void {
         workspaceRoot,
         "--question",
         contextualQuestion,
+        "--mode",
+        mode,
         "--answer-with-llm",
         "--model",
         "gpt-5",
@@ -547,7 +549,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
     let assistantContent = "Completed request.";
     const rawStdout = stdoutLines.join("\n");
-    let payload: { llm_answer?: { answer_path?: string; markdown_answer_path?: string }; stop_reason?: string } = {};
+    let payload: {
+      llm_answer?: { answer_path?: string; markdown_answer_path?: string };
+      stop_reason?: string;
+      route_decision?: { route?: string };
+      answer_text?: string;
+      suggested_precision_followup?: string;
+    } = {};
     try {
       payload = JSON.parse(rawStdout) as { llm_answer?: { answer_path?: string; markdown_answer_path?: string }; stop_reason?: string };
     } catch {
@@ -565,8 +573,16 @@ export function activate(context: vscode.ExtensionContext): void {
       } catch {
         assistantContent = "Completed request but could not read the final answer file.";
       }
+    } else if (typeof payload.answer_text === "string" && payload.answer_text.trim().length > 0) {
+      assistantContent = payload.answer_text.trim();
+      if (payload.suggested_precision_followup) {
+        assistantContent += `\n\n${payload.suggested_precision_followup}`;
+      }
     } else {
       assistantContent = `Completed with stop reason: ${payload.stop_reason ?? "unknown"}`;
+    }
+    if (payload.route_decision?.route) {
+      appendStatus(chatView, `Route: ${payload.route_decision.route}`);
     }
 
     appendChat(chatView, "assistant", assistantContent);

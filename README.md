@@ -22,6 +22,10 @@ questions using:
    - `python -m pcb_qa.cli ingest --project-root . --llm-enrich --llm-model gpt-5`
 4. Agent ask (LLM-driven planner + coverage verifier + selective schematic image policy):
    - `python -m pcb_qa.cli agent-ask --project-root . --question "is VDDIO connected correctly to the ICM-42605?"`
+   - Routing modes:
+   - `--mode precision` (direct precision agent path)
+   - `--mode general` (general-response path)
+   - `--mode auto` (router decides between precision/general/irrelevant-general)
    - Shows live progress lines on stderr while running.
    - Supports `--quiet` to suppress progress output.
 5. Agent-driven ask + final LLM answer:
@@ -37,6 +41,11 @@ Key QA outputs now include:
 - `derived/qa/obligations.json`
 - `derived/qa/coverage_report.json`
 - `derived/qa/agent_evidence_packet.json` (with `missing_obligations`, `tool_decision_trace`, and `image_selection_trace`)
+- `derived/bom/bom_overview.md`
+- `derived/kg/circuit_summary.md`
+- `derived/datasheets/datasheet_markdown_manifest.json`
+- `derived/datasheets/component_facts.jsonl`
+- `derived/datasheets/component_pin_functions.jsonl`
 
 Stop reasons include:
 - `coverage_satisfied_finalize`

@@ -19,6 +19,7 @@ except Exception:  # pragma: no cover
 
 from . import evidence_tools
 from .evidence_packet import build_evidence_packet, write_evidence_packet
+from .model_policy import ANSWER_MODEL_DEFAULT, PLANNER_MODEL_DEFAULT
 from .obligations import derive_obligations, evaluate_obligations
 from .prompt_render import render_and_write_prompt
 from .retrieval import IntentRouter, SingleModeRetriever
@@ -37,8 +38,8 @@ class AgentLimits:
 @dataclass
 class AnswerOptions:
     answer_with_llm: bool = False
-    planner_model: str = "gpt-5-mini"
-    model: str = "gpt-5"
+    planner_model: str = PLANNER_MODEL_DEFAULT
+    model: str = ANSWER_MODEL_DEFAULT
     max_schematic_images_for_answer: int = 4
     image_detail: str = "auto"
 
@@ -193,6 +194,16 @@ def _ingest_result_into_state(state: AgentState, tool_name: str, result: dict[st
             source_file = str(row.get("source_file", ""))
             if source_file and source_type == "datasheet":
                 state.resolved_entities["datasheets"].add(source_file)
+    elif tool_name == "get_component_datasheet_facts":
+        facts = result.get("facts", {})
+        if isinstance(facts, dict):
+            refdes = str(facts.get("refdes", "")).upper() or str(result.get("refdes", "")).upper()
+            if refdes:
+                state.resolved_entities["components"].add(refdes)
+            _append_evidence(state, "datasheet", f"datasheet facts for {refdes or 'component'}", result, call_id)
+    elif tool_name == "search_pin_functions":
+        for row in result.get("results", [])[:20]:
+            _append_evidence(state, "datasheet", "pin function table evidence", row, call_id)
     elif tool_name == "get_schematic_pages":
         for page in result.get("relevant_pages", [])[:8]:
             if isinstance(page, int):
@@ -242,6 +253,8 @@ class LocalEvidenceToolRuntime:
             {"type": "function", "name": "get_function_blocks", "description": "Get functional block artifacts", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
             {"type": "function", "name": "get_power_domains", "description": "Get power domain artifacts", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
             {"type": "function", "name": "get_interface_buses", "description": "Get interface bus artifacts", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
+            {"type": "function", "name": "get_component_datasheet_facts", "description": "Fetch extracted datasheet facts for a component", "parameters": {"type": "object", "properties": {"refdes": {"type": "string"}}, "required": ["refdes"], "additionalProperties": False}},
+            {"type": "function", "name": "search_pin_functions", "description": "Search normalized pin-function rows", "parameters": {"type": "object", "properties": {"query": {"type": "string"}, "refdes": {"type": "string"}, "max_results": {"type": "integer"}}, "required": ["query"], "additionalProperties": False}},
             {"type": "function", "name": "get_connectivity_anomalies", "description": "Get anomalies optionally filtered by refdes", "parameters": {"type": "object", "properties": {"severity": {"type": "string"}, "refdes": {"type": "string"}}, "additionalProperties": False}},
             {"type": "function", "name": "rank_schematic_images_for_obligations", "description": "Rank schematic pages for obligation closure", "parameters": {"type": "object", "properties": {"max_results": {"type": "integer"}}, "additionalProperties": False}},
             {"type": "function", "name": "get_coverage_status", "description": "Evaluate obligation coverage against current evidence", "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -293,6 +306,18 @@ class LocalEvidenceToolRuntime:
                 result = evidence_tools.get_power_domains(self.project_root)
             elif tool_name == "get_interface_buses":
                 result = evidence_tools.get_interface_buses(self.project_root)
+            elif tool_name == "get_component_datasheet_facts":
+                result = evidence_tools.get_component_datasheet_facts(
+                    self.project_root,
+                    refdes=str(args.get("refdes", "")),
+                )
+            elif tool_name == "search_pin_functions":
+                result = evidence_tools.search_pin_functions(
+                    self.project_root,
+                    query=str(args.get("query", "")),
+                    refdes=args.get("refdes"),
+                    max_results=int(args.get("max_results", 20)),
+                )
             elif tool_name == "get_connectivity_anomalies":
                 result = evidence_tools.get_connectivity_anomalies(self.project_root, severity=args.get("severity"), refdes=args.get("refdes"))
             elif tool_name == "rank_schematic_images_for_obligations":
@@ -334,6 +359,9 @@ def _deterministic_fallback(runtime: LocalEvidenceToolRuntime, question: str, li
         runtime.execute("get_net_members", {"net_name": net}, call_id=f"fallback_get_net_{net}")
     runtime.execute("get_function_blocks", {}, call_id="fallback_get_blocks")
     runtime.execute("get_power_domains", {}, call_id="fallback_get_power")
+    for comp in runtime.state.obligations.get("entities_required", {}).get("components", [])[:4]:
+        runtime.execute("get_component_datasheet_facts", {"refdes": comp}, call_id=f"fallback_datasheet_{comp}")
+    runtime.execute("search_pin_functions", {"query": question, "max_results": 10}, call_id="fallback_pin_functions")
     runtime.execute("search_pdf_chunks", {"query": question, "source_type": "schematic", "max_results": min(8, limits.max_chunks)}, call_id="fallback_search_chunks")
     runtime.execute("rank_schematic_images_for_obligations", {"max_results": limits.max_schematic_images}, call_id="fallback_rank_images")
     runtime.execute("finalize_evidence", {"reason": "deterministic_fallback"}, call_id="fallback_finalize")
