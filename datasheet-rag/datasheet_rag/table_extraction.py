@@ -179,6 +179,22 @@ def extract_tables_from_document(
         page_number: _extract_text_lines(document[page_number - 1])
         for page_number in range(1, document.page_count + 1)
     }
+    return extract_tables_from_pages(
+        document=document,
+        page_numbers=list(range(1, document.page_count + 1)),
+        page_lines=page_lines,
+        crop_dir=crop_dir,
+    )
+
+
+def extract_tables_from_pages(
+    *,
+    document: fitz.Document,
+    page_numbers: list[int],
+    page_lines: dict[int, list[TextLine]],
+    crop_dir: Path | None = None,
+) -> TableExtractionResult:
+    """Extract tables and rows for a specific set of pages."""
 
     if crop_dir is not None:
         crop_dir.mkdir(parents=True, exist_ok=True)
@@ -187,7 +203,7 @@ def extract_tables_from_document(
     rows: list[ExtractedTableRow] = []
     candidate_count = 0
 
-    for page_number in range(1, document.page_count + 1):
+    for page_number in page_numbers:
         page = document[page_number - 1]
         native_tables = _extract_native_tables(page)
         candidates = _discover_candidates(

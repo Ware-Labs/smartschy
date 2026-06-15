@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -19,7 +19,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def initialize(connection: sqlite3.Connection) -> None:
-    """Create the Phase 3 visual-table schema if it does not already exist."""
+    """Create the canonical ingest schema if it does not already exist."""
 
     connection.executescript(
         """
@@ -163,6 +163,57 @@ def initialize(connection: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_table_rows_document_page
             ON table_rows(document_id, page_number, table_index, row_index);
+
+        CREATE TABLE IF NOT EXISTS entities (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id TEXT NOT NULL,
+            entity_key TEXT NOT NULL,
+            entity_family TEXT NOT NULL,
+            normalized_key TEXT NOT NULL,
+            display_text TEXT NOT NULL,
+            raw_text TEXT NOT NULL,
+            aliases_json TEXT NOT NULL DEFAULT '[]',
+            confidence REAL NOT NULL DEFAULT 0.0,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE (document_id, entity_key),
+            FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS entity_evidence (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id TEXT NOT NULL,
+            entity_key TEXT NOT NULL,
+            page_number INTEGER NOT NULL,
+            source_kind TEXT NOT NULL,
+            table_index INTEGER,
+            row_index INTEGER,
+            chunk_index INTEGER,
+            evidence_text TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS entity_relations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id TEXT NOT NULL,
+            source_entity_key TEXT NOT NULL,
+            relation_type TEXT NOT NULL,
+            target_entity_key TEXT NOT NULL,
+            confidence REAL NOT NULL DEFAULT 0.0,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            UNIQUE (document_id, source_entity_key, relation_type, target_entity_key),
+            FOREIGN KEY (document_id) REFERENCES documents(document_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_entities_document_family
+            ON entities(document_id, entity_family, normalized_key);
+
+        CREATE INDEX IF NOT EXISTS idx_entity_evidence_document_page
+            ON entity_evidence(document_id, page_number, table_index, row_index, chunk_index);
+
+        CREATE INDEX IF NOT EXISTS idx_entity_relations_document
+            ON entity_relations(document_id, source_entity_key, relation_type, target_entity_key);
         """
     )
     connection.execute(
@@ -203,6 +254,11 @@ def initialize(connection: sqlite3.Connection) -> None:
         "TEXT NOT NULL DEFAULT '[]'",
     )
     _ensure_column(connection, "table_rows", "confidence_json", "TEXT NOT NULL DEFAULT '{}'")
+    _ensure_column(connection, "entities", "aliases_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_column(connection, "entities", "confidence", "REAL NOT NULL DEFAULT 0.0")
+    _ensure_column(connection, "entities", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+    _ensure_column(connection, "entity_evidence", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
+    _ensure_column(connection, "entity_relations", "metadata_json", "TEXT NOT NULL DEFAULT '{}'")
     connection.commit()
 
 
